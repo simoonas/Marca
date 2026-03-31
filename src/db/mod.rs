@@ -80,11 +80,37 @@ impl Database {
         queries::get_all_bookmarks(&self.conn)
     }
 
+    pub fn get_all_tags(&self) -> Result<Vec<Tag>> {
+        queries::get_all_tags(&self.conn)
+    }
+
     pub fn search_bookmarks(
         &self,
         query: Option<&str>,
         tag_ids: &[i64],
     ) -> Result<Vec<BookmarkWithTags>> {
         queries::search_bookmarks(&self.conn, query, tag_ids)
+    }
+
+    pub fn update_bookmark(
+        &self,
+        id: i64,
+        title: &str,
+        url: &str,
+        note: Option<&str>,
+    ) -> Result<()> {
+        queries::update_bookmark(&self.conn, id, title, url, note)
+    }
+
+    pub fn update_bookmark_tags(&self, bookmark_id: i64, tag_titles: &[String]) -> Result<()> {
+        queries::update_bookmark_tags(&self.conn, bookmark_id, tag_titles)
+    }
+
+    pub fn delete_bookmark(&self, id: i64) -> Result<()> {
+        queries::delete_bookmark(&self.conn, id)
+    }
+
+    pub fn get_bookmark_by_id(&self, id: i64) -> Result<BookmarkWithTags> {
+        queries::get_bookmark_by_id(&self.conn, id)
     }
 }

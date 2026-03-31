@@ -197,3 +197,72 @@ pub fn search_bookmarks(
 
     Ok(results)
 }
+
+pub fn update_bookmark(
+    conn: &Connection,
+    id: i64,
+    title: &str,
+    url: &str,
+    note: Option<&str>,
+) -> Result<()> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    conn.execute(
+        "UPDATE bookmarks SET title = ?1, url = ?2, note = ?3, changed = ?4 WHERE id = ?5",
+        params![title, url, note, now, id],
+    )?;
+    Ok(())
+}
+
+pub fn update_bookmark_tags(
+    conn: &Connection,
+    bookmark_id: i64,
+    tag_titles: &[String],
+) -> Result<()> {
+    // Start transaction
+    let tx = conn.unchecked_transaction()?;
+
+    // Remove all existing tags for this bookmark
+    tx.execute(
+        "DELETE FROM bookmark_tags WHERE bookmark_id = ?1",
+        params![bookmark_id],
+    )?;
+
+    // Add new tags
+    for title in tag_titles {
+        let tag_id = get_or_create_tag(&tx, title)?;
+        add_tag_to_bookmark(&tx, bookmark_id, tag_id)?;
+    }
+
+    tx.commit()?;
+    Ok(())
+}
+
+pub fn delete_bookmark(conn: &Connection, id: i64) -> Result<()> {
+    conn.execute("DELETE FROM bookmarks WHERE id = ?1", params![id])?;
+    Ok(())
+}
+
+pub fn get_bookmark_by_id(conn: &Connection, id: i64) -> Result<BookmarkWithTags> {
+    let bookmark = conn.query_row(
+        "SELECT id, title, url, note, content, created, changed FROM bookmarks WHERE id = ?1",
+        params![id],
+        |row| {
+            Ok(Bookmark {
+                id: Some(row.get(0)?),
+                title: row.get(1)?,
+                url: row.get(2)?,
+                note: row.get(3)?,
+                content: row.get(4)?,
+                created: row.get(5)?,
+                changed: row.get(6)?,
+            })
+        },
+    )?;
+
+    let tags = get_tags_for_bookmark(conn, id)?;
+    Ok(BookmarkWithTags { bookmark, tags })
+}
