@@ -15,7 +15,6 @@ pub struct App {
     pinned_tag_ids: Vec<i64>,
     bookmark_search: String,
     tag_search: String,
-    tag_search_active: bool,
     edit_dialog: Option<Controller<BookmarkEditDialog>>,
     toast_overlay: adw::ToastOverlay,
     last_deleted_bookmark: Option<(i64, crate::db::models::BookmarkWithTags)>,
@@ -26,16 +25,22 @@ pub struct App {
 pub enum AppMsg {
     BookmarkSearch(String),
     TagSearch(String),
-    TagSearchToggle,
     TagToggled(i64),
     ClearPinnedTags,
     RefreshBookmarks,
     RefreshTags,
     OpenBookmark(String),
+    CreateBookmark,
     EditBookmark(i64),
     DeleteBookmark(i64),
     ConfirmSaveBookmark {
         id: i64,
+        title: String,
+        url: String,
+        note: Option<String>,
+        tag_titles: Vec<String>,
+    },
+    ConfirmCreateBookmark {
         title: String,
         url: String,
         note: Option<String>,
@@ -76,21 +81,9 @@ impl SimpleComponent for App {
                         #[wrap(Some)]
                         set_child = &adw::ToolbarView {
                             add_top_bar = &adw::HeaderBar {
-                                pack_start = &gtk::ToggleButton {
-                                    set_icon_name: "folder-saved-search-symbolic",
-                                    add_css_class: "flat",
-                                    set_tooltip_text: Some("Search tags"),
-                                    #[watch]
-                                    set_active: model.tag_search_active,
-                                    connect_toggled[sender] => move |_| {
-                                        sender.input(AppMsg::TagSearchToggle);
-                                    }
-                                },
-
-                                pack_start = &gtk::SearchEntry {
-                                    set_placeholder_text: Some("search tags..."),
-                                    #[watch]
-                                    set_visible: model.tag_search_active,
+                                #[wrap(Some)]
+                                set_title_widget = &gtk::SearchEntry {
+                                    set_placeholder_text: Some("Search tags..."),
                                     set_hexpand: true,
                                     connect_search_changed[sender] => move |entry| {
                                         sender.input(AppMsg::TagSearch(entry.text().to_string()));
@@ -166,13 +159,18 @@ impl SimpleComponent for App {
                         #[wrap(Some)]
                         set_child = &adw::ToolbarView {
                             add_top_bar = &adw::HeaderBar {
+                                pack_start = &gtk::Button {
+                                    set_icon_name: "list-add-symbolic",
+                                    add_css_class: "flat",
+                                    set_tooltip_text: Some("Create bookmark"),
+                                    connect_clicked => AppMsg::CreateBookmark,
+                                },
+
                                 #[wrap(Some)]
                                 set_title_widget = &gtk::SearchEntry {
                                     set_placeholder_text: Some("search bookmarks (^K)"),
                                     set_hexpand: false,
                                     set_width_request: 400,
-                                    #[watch]
-                                    set_visible: !model.tag_search_active,
                                     connect_search_changed[sender] => move |entry| {
                                         sender.input(AppMsg::BookmarkSearch(entry.text().to_string()));
                                     }
@@ -241,7 +239,6 @@ impl SimpleComponent for App {
             pinned_tag_ids: Vec::new(),
             bookmark_search: String::new(),
             tag_search: String::new(),
-            tag_search_active: false,
             edit_dialog: None,
             toast_overlay: toast_overlay.clone(),
             last_deleted_bookmark: None,
@@ -271,10 +268,6 @@ impl SimpleComponent for App {
             AppMsg::TagSearch(query) => {
                 self.tag_search = query;
                 _sender.input(AppMsg::RefreshTags);
-            }
-
-            AppMsg::TagSearchToggle => {
-                self.tag_search_active = !self.tag_search_active;
             }
 
             AppMsg::TagToggled(tag_id) => {
@@ -373,6 +366,42 @@ impl SimpleComponent for App {
                 }
             }
 
+            AppMsg::CreateBookmark => {
+                // Get all tags for autocomplete
+                let all_tags = self.db.get_all_tags().unwrap_or_default();
+
+                let init = BookmarkEditInit {
+                    bookmark: None, // Create mode
+                    current_tags: vec![],
+                    all_tags,
+                };
+
+                // Create and show dialog
+                let dialog = BookmarkEditDialog::builder().launch(init).forward(
+                    _sender.input_sender(),
+                    |output| match output {
+                        BookmarkEditOutput::SaveCreate {
+                            title,
+                            url,
+                            note,
+                            tag_titles,
+                        } => AppMsg::ConfirmCreateBookmark {
+                            title,
+                            url,
+                            note,
+                            tag_titles,
+                        },
+                        BookmarkEditOutput::ValidationError(msg) => AppMsg::ShowToast(msg),
+                        _ => unreachable!(),
+                    },
+                );
+
+                // Present the dialog
+                dialog.widget().present(Some(&self.window));
+
+                self.edit_dialog = Some(dialog);
+            }
+
             AppMsg::EditBookmark(id) => {
                 // Fetch bookmark data
                 match self.db.get_bookmark_by_id(id) {
@@ -381,7 +410,7 @@ impl SimpleComponent for App {
                         let all_tags = self.db.get_all_tags().unwrap_or_default();
 
                         let init = BookmarkEditInit {
-                            bookmark: bookmark_with_tags.bookmark,
+                            bookmark: Some(bookmark_with_tags.bookmark),
                             current_tags: bookmark_with_tags.tags,
                             all_tags,
                         };
@@ -390,7 +419,7 @@ impl SimpleComponent for App {
                         let dialog = BookmarkEditDialog::builder().launch(init).forward(
                             _sender.input_sender(),
                             |output| match output {
-                                BookmarkEditOutput::Save {
+                                BookmarkEditOutput::SaveEdit {
                                     id,
                                     title,
                                     url,
@@ -404,6 +433,7 @@ impl SimpleComponent for App {
                                     tag_titles,
                                 },
                                 BookmarkEditOutput::ValidationError(msg) => AppMsg::ShowToast(msg),
+                                _ => unreachable!(),
                             },
                         );
 
@@ -459,6 +489,59 @@ impl SimpleComponent for App {
                     Err(e) => {
                         eprintln!("Error updating bookmark: {}", e);
                         let toast = adw::Toast::new("Failed to update bookmark");
+                        self.toast_overlay.add_toast(toast);
+                        // Don't close dialog on error - let user retry
+                    }
+                }
+            }
+
+            AppMsg::ConfirmCreateBookmark {
+                title,
+                url,
+                note,
+                tag_titles,
+            } => {
+                // Validate fields (defensive check)
+                if title.trim().is_empty() || url.trim().is_empty() {
+                    eprintln!("Validation error: Title or URL is empty");
+                    let toast = adw::Toast::new("Title and URL are required");
+                    self.toast_overlay.add_toast(toast);
+                    return;
+                }
+
+                // Insert new bookmark into database
+                match self.db.insert_bookmark(&title, &url, note.as_deref()) {
+                    Ok(bookmark_id) => {
+                        // Update tags for the new bookmark
+                        if let Err(e) = self.db.update_bookmark_tags(bookmark_id, &tag_titles) {
+                            eprintln!("Error adding bookmark tags: {}", e);
+                            let toast = adw::Toast::new("Failed to add tags");
+                            self.toast_overlay.add_toast(toast);
+                        }
+
+                        // Close dialog explicitly
+                        if let Some(dialog) = self.edit_dialog.take() {
+                            dialog.widget().close();
+                        }
+
+                        // Refresh bookmarks and tags
+                        _sender.input(AppMsg::RefreshBookmarks);
+                        _sender.input(AppMsg::RefreshTags);
+
+                        // Show success toast
+                        let toast = adw::Toast::new("Bookmark created");
+                        self.toast_overlay.add_toast(toast);
+                    }
+                    Err(e) => {
+                        eprintln!("Error creating bookmark: {}", e);
+                        // Check if it's a duplicate URL error
+                        let error_msg = e.to_string();
+                        let toast_message = if error_msg.contains("UNIQUE constraint failed") {
+                            "A bookmark with this URL already exists"
+                        } else {
+                            "Failed to create bookmark"
+                        };
+                        let toast = adw::Toast::new(toast_message);
                         self.toast_overlay.add_toast(toast);
                         // Don't close dialog on error - let user retry
                     }

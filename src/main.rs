@@ -2,6 +2,7 @@ mod app;
 mod components;
 mod db;
 mod fixtures;
+mod fetch_metadata;
 
 use relm4::RelmApp;
 

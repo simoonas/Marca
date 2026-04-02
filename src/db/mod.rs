@@ -92,6 +92,12 @@ impl Database {
         queries::search_bookmarks(&self.conn, query, tag_ids)
     }
 
+    pub fn insert_bookmark(&self, title: &str, url: &str, note: Option<&str>) -> Result<i64> {
+        let mut bookmark = Bookmark::new(title.to_string(), url.to_string());
+        bookmark.note = note.map(|s| s.to_string());
+        queries::insert_bookmark(&self.conn, &bookmark)
+    }
+
     pub fn update_bookmark(
         &self,
         id: i64,
