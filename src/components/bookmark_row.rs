@@ -1,7 +1,10 @@
 use crate::db::models::{Bookmark, BookmarkWithTags, Tag};
 use adw::prelude::*;
+use gtk::gdk;
+use gtk::gdk_pixbuf;
 use relm4::factory::{DynamicIndex, FactoryComponent, FactorySender};
 use relm4::prelude::*;
+use std::io::Cursor;
 
 #[derive(Debug)]
 pub struct BookmarkRow {
@@ -9,6 +12,27 @@ pub struct BookmarkRow {
     tags: Vec<Tag>,
     hovered: bool,
     favicon_data: Option<Vec<u8>>,
+}
+
+impl BookmarkRow {
+    /// Convert favicon data to a GdkTexture for display
+    fn get_favicon_texture(&self) -> Option<gdk::Texture> {
+        self.favicon_data.as_ref().and_then(|data| {
+            let cursor = Cursor::new(data.clone());
+            match gdk_pixbuf::Pixbuf::from_read(cursor) {
+                Ok(pixbuf) => {
+                    // Scale pixbuf to 48x48 if needed
+                    let scaled = if pixbuf.width() != 48 || pixbuf.height() != 48 {
+                        pixbuf.scale_simple(48, 48, gdk_pixbuf::InterpType::Bilinear)
+                    } else {
+                        Some(pixbuf)
+                    };
+                    scaled.map(|pb| gdk::Texture::for_pixbuf(&pb))
+                }
+                Err(_) => None,
+            }
+        })
+    }
 }
 
 #[derive(Debug)]
@@ -65,7 +89,8 @@ impl FactoryComponent for BookmarkRow {
                     set_spacing: 12,
                     set_margin_all: 12,
 
-                    // Avatar on left with bookmark title text
+                    // Avatar on left with favicon or initials fallback
+                    #[name = "avatar"]
                     adw::Avatar {
                         set_text: Some(&self.bookmark.title),
                         set_size: 48,
@@ -165,6 +190,12 @@ impl FactoryComponent for BookmarkRow {
         sender: FactorySender<Self>,
     ) -> Self::Widgets {
         let widgets = view_output!();
+
+        // Set favicon as custom image on avatar if available
+        if let Some(texture) = self.get_favicon_texture() {
+            widgets.avatar.set_custom_image(Some(&texture));
+            widgets.avatar.set_show_initials(false);
+        }
 
         // Add compact tag badges - show as many as fit, then "+X"
         if !self.tags.is_empty() {

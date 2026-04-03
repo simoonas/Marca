@@ -46,10 +46,6 @@ pub enum AppMsg {
         note: Option<String>,
         tag_titles: Vec<String>,
     },
-    SaveFavicon {
-        domain: String,
-        favicon_data: Vec<u8>,
-    },
     ShowToast(String),
     UndoDelete,
 }
@@ -536,19 +532,20 @@ impl SimpleComponent for App {
                         let toast = adw::Toast::new("Bookmark created");
                         self.toast_overlay.add_toast(toast);
 
-                        // Spawn async task to fetch favicon (non-blocking)
+                        // Spawn async favicon fetch AFTER dialog closed (non-blocking)
                         let url_clone = url.clone();
-                        let sender = _sender.clone();
                         tokio::spawn(async move {
                             // Extract domain from URL
                             if let Ok(parsed_url) = url::Url::parse(&url_clone) {
-                                if let Some(domain_str) = parsed_url.host_str().map(|h| h.to_string()) {
-                                    // Fetch favicon for this domain
-                                    if let Some(favicon_data) = crate::fetch_favicon::fetch_favicon(&url_clone).await {
-                                        let _ = sender.input(AppMsg::SaveFavicon {
-                                            domain: domain_str,
-                                            favicon_data,
-                                        });
+                                if let Some(domain_str) = parsed_url.host_str().map(|s| s.to_string()) {
+                                    // Fetch favicon in background
+                                    if let Some(favicon_data) = crate::fetch_metadata::fetch_favicon(&url_clone).await {
+                                        // Create new DB connection for async task
+                                        if let Ok(db) = crate::db::Database::new() {
+                                            if let Err(e) = db.insert_or_update_favicon(&domain_str, &favicon_data) {
+                                                eprintln!("Error saving favicon for {}: {}", domain_str, e);
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -606,12 +603,6 @@ impl SimpleComponent for App {
                             self.toast_overlay.add_toast(toast);
                         }
                     }
-                }
-            }
-
-            AppMsg::SaveFavicon { domain, favicon_data } => {
-                if let Err(e) = self.db.insert_or_update_favicon(&domain, &favicon_data) {
-                    eprintln!("Error saving favicon for {}: {}", domain, e);
                 }
             }
 

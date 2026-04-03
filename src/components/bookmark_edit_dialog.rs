@@ -28,13 +28,6 @@ pub enum BookmarkEditMsg {
     RemoveTag(String),
     Save,
     Cancel,
-    FetchMetadata,
-    MetadataFetched {
-        title: String,
-        description: Option<String>,
-        had_error: bool,
-    },
-    MetadataFetchError(String),
     DoSaveAfterMetadata {
         title: String,
         url: String,
@@ -304,31 +297,51 @@ impl SimpleComponent for BookmarkEditDialog {
                 let is_edit = self.bookmark_id.is_some();
                 let bookmark_id = self.bookmark_id;
 
-                // Fetch metadata for the URL
+                // If title is provided, save immediately (fast path)
+                if !title.trim().is_empty() {
+                    if is_edit {
+                        if let Some(id) = bookmark_id {
+                            sender
+                                .output(BookmarkEditOutput::SaveEdit {
+                                    id,
+                                    title: title.trim().to_string(),
+                                    url: url.trim().to_string(),
+                                    note,
+                                    tag_titles,
+                                })
+                                .unwrap();
+                        }
+                    } else {
+                        sender
+                            .output(BookmarkEditOutput::SaveCreate {
+                                title: title.trim().to_string(),
+                                url: url.trim().to_string(),
+                                note,
+                                tag_titles,
+                            })
+                            .unwrap();
+                    }
+                    return;
+                }
+
+                // No title provided - fetch metadata quickly (3s timeout)
                 let input_sender = sender.input_sender().clone();
                 let url_clone = url.clone();
                 glib::MainContext::default().spawn_local(async move {
-                    match crate::fetch_metadata::fetch_url_metadata(&url_clone).await {
-                        Ok((fetched_title, description, _had_error)) => {
-                            // Use fetched title if user didn't provide one
-                            let final_title = if title.trim().is_empty() {
-                                fetched_title
+                    match crate::fetch_metadata::fetch_quick_metadata(&url_clone).await {
+                        Ok(metadata) => {
+                            let final_title = if metadata.title.trim().is_empty() {
+                                // Use URL as fallback title
+                                url_clone.clone()
                             } else {
-                                title
+                                metadata.title
                             };
 
-                            // Use fetched description if user didn't provide note
                             let final_note = if note.is_none() {
-                                description
+                                metadata.description
                             } else {
                                 note
                             };
-
-                            // Validate that we have at least a title now
-                            if final_title.trim().is_empty() {
-                                let _ = input_sender.send(BookmarkEditMsg::FetchMetadata); // This won't help, just show error
-                                return;
-                            }
 
                             let _ = input_sender.send(BookmarkEditMsg::DoSaveAfterMetadata {
                                 title: final_title.trim().to_string(),
@@ -340,16 +353,9 @@ impl SimpleComponent for BookmarkEditDialog {
                             });
                         }
                         Err(_e) => {
-                            // If metadata fetch fails but we have a title, proceed anyway
-                            if title.trim().is_empty() {
-                                let _ = input_sender.send(BookmarkEditMsg::MetadataFetchError(
-                                    "Could not fetch URL metadata".to_string(),
-                                ));
-                                return;
-                            }
-
+                            // Timeout or error - use URL as title
                             let _ = input_sender.send(BookmarkEditMsg::DoSaveAfterMetadata {
-                                title: title.trim().to_string(),
+                                title: url_clone.clone(),
                                 url: url.trim().to_string(),
                                 note,
                                 tag_titles,
@@ -359,68 +365,6 @@ impl SimpleComponent for BookmarkEditDialog {
                         }
                     }
                 });
-            }
-
-            BookmarkEditMsg::FetchMetadata => {
-                let url = self.url_entry.text().to_string();
-
-                if url.trim().is_empty() {
-                    sender
-                        .output(BookmarkEditOutput::ValidationError(
-                            "Enter a URL first".to_string(),
-                        ))
-                        .unwrap();
-                    return;
-                }
-
-                // Spawn async task to fetch metadata
-                let input_sender = sender.input_sender().clone();
-                glib::MainContext::default().spawn_local(async move {
-                    match crate::fetch_metadata::fetch_url_metadata(&url).await {
-                        Ok((title, description, had_error)) => {
-                            let _ = input_sender
-                                .send(BookmarkEditMsg::MetadataFetched { title, description, had_error });
-                        }
-                        Err(e) => {
-                            let _ = input_sender
-                                .send(BookmarkEditMsg::MetadataFetchError(e.to_string()));
-                        }
-                    }
-                });
-            }
-
-            BookmarkEditMsg::MetadataFetched { title, description, had_error } => {
-                // Populate title if empty (don't override user input)
-                if self.title_entry.text().is_empty() {
-                    self.title_entry.set_text(&title);
-                }
-
-                // Populate note with description if empty
-                if let Some(desc) = description {
-                    let buffer = self.note_view.buffer();
-                    let current = buffer.text(&buffer.start_iter(), &buffer.end_iter(), false);
-                    if current.is_empty() {
-                        buffer.set_text(&desc);
-                    }
-                }
-                
-                // Show error toast if we had to use fallbacks
-                if had_error {
-                    sender
-                        .output(BookmarkEditOutput::ValidationError(
-                            "Could not find page title or description".to_string(),
-                        ))
-                        .unwrap();
-                }
-            }
-
-            BookmarkEditMsg::MetadataFetchError(msg) => {
-                sender
-                    .output(BookmarkEditOutput::ValidationError(format!(
-                        "Could not fetch page: {}",
-                        msg
-                    )))
-                    .unwrap();
             }
 
             BookmarkEditMsg::DoSaveAfterMetadata {

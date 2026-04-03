@@ -3,7 +3,6 @@ mod components;
 mod db;
 mod fixtures;
 mod fetch_metadata;
-mod fetch_favicon;
 
 use relm4::RelmApp;
 

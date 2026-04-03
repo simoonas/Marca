@@ -61,6 +61,16 @@ impl Database {
             self.conn.execute(trigger_sql, [])?;
         }
 
+        // Migration: drop old buggy trigger that incorrectly deletes favicons
+        let _ = self.conn.execute("DROP TRIGGER IF EXISTS bookmarks_ad", []);
+        // Recreate with fixed version (no favicon cleanup)
+        self.conn.execute(
+            "CREATE TRIGGER IF NOT EXISTS bookmarks_ad AFTER DELETE ON bookmarks BEGIN
+                DELETE FROM bookmarks_fts WHERE rowid = old.id;
+            END",
+            [],
+        )?;
+
         eprintln!("Database schema initialized successfully");
 
         Ok(())
