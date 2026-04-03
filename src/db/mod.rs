@@ -48,6 +48,7 @@ impl Database {
         self.conn.execute(schema::CREATE_BOOKMARKS_TABLE, [])?;
         self.conn.execute(schema::CREATE_TAGS_TABLE, [])?;
         self.conn.execute(schema::CREATE_BOOKMARK_TAGS_TABLE, [])?;
+        self.conn.execute(schema::CREATE_FAVICONS_TABLE, [])?;
         self.conn.execute(schema::CREATE_BOOKMARKS_FTS, [])?;
 
         // Create indexes
@@ -118,5 +119,13 @@ impl Database {
 
     pub fn get_bookmark_by_id(&self, id: i64) -> Result<BookmarkWithTags> {
         queries::get_bookmark_by_id(&self.conn, id)
+    }
+
+    pub fn get_favicon(&self, domain: &str) -> Result<Option<Vec<u8>>> {
+        queries::get_favicon(&self.conn, domain)
+    }
+
+    pub fn insert_or_update_favicon(&self, domain: &str, favicon: &[u8]) -> Result<()> {
+        queries::insert_or_update_favicon(&self.conn, domain, favicon)
     }
 }

@@ -44,4 +44,5 @@ impl Tag {
 pub struct BookmarkWithTags {
     pub bookmark: Bookmark,
     pub tags: Vec<Tag>,
+    pub favicon_data: Option<Vec<u8>>,
 }

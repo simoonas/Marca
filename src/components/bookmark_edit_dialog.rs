@@ -35,6 +35,14 @@ pub enum BookmarkEditMsg {
         had_error: bool,
     },
     MetadataFetchError(String),
+    DoSaveAfterMetadata {
+        title: String,
+        url: String,
+        note: Option<String>,
+        tag_titles: Vec<String>,
+        is_edit: bool,
+        bookmark_id: Option<i64>,
+    },
 }
 
 #[derive(Debug)]
@@ -109,20 +117,12 @@ impl SimpleComponent for BookmarkEditDialog {
                                 }
                             },
 
-                            // URL field with fetch button
+                            // URL field
                             adw::PreferencesGroup {
                                 #[name = "url_entry"]
                                 adw::EntryRow {
                                     set_title: "URL",
                                     set_hexpand: true,
-
-                                    add_suffix = &gtk::Button {
-                                        set_icon_name: "view-refresh-symbolic",
-                                        set_tooltip_text: Some("Fetch title and description from URL"),
-                                        add_css_class: "flat",
-                                        set_valign: gtk::Align::Center,
-                                        connect_clicked => BookmarkEditMsg::FetchMetadata,
-                                    }
                                 }
                             },
 
@@ -280,15 +280,6 @@ impl SimpleComponent for BookmarkEditDialog {
                 let url = self.url_entry.text().to_string();
 
                 // Validation
-                if title.trim().is_empty() {
-                    sender
-                        .output(BookmarkEditOutput::ValidationError(
-                            "Title cannot be empty".to_string(),
-                        ))
-                        .unwrap();
-                    return;
-                }
-
                 if url.trim().is_empty() {
                     sender
                         .output(BookmarkEditOutput::ValidationError(
@@ -309,27 +300,65 @@ impl SimpleComponent for BookmarkEditDialog {
                     Some(note_text)
                 };
 
-                // Send appropriate output based on mode
-                if let Some(id) = self.bookmark_id {
-                    sender
-                        .output(BookmarkEditOutput::SaveEdit {
-                            id,
-                            title: title.trim().to_string(),
-                            url: url.trim().to_string(),
-                            note,
-                            tag_titles: self.tags.clone(),
-                        })
-                        .unwrap();
-                } else {
-                    sender
-                        .output(BookmarkEditOutput::SaveCreate {
-                            title: title.trim().to_string(),
-                            url: url.trim().to_string(),
-                            note,
-                            tag_titles: self.tags.clone(),
-                        })
-                        .unwrap();
-                }
+                let tag_titles = self.tags.clone();
+                let is_edit = self.bookmark_id.is_some();
+                let bookmark_id = self.bookmark_id;
+
+                // Fetch metadata for the URL
+                let input_sender = sender.input_sender().clone();
+                let url_clone = url.clone();
+                glib::MainContext::default().spawn_local(async move {
+                    match crate::fetch_metadata::fetch_url_metadata(&url_clone).await {
+                        Ok((fetched_title, description, _had_error)) => {
+                            // Use fetched title if user didn't provide one
+                            let final_title = if title.trim().is_empty() {
+                                fetched_title
+                            } else {
+                                title
+                            };
+
+                            // Use fetched description if user didn't provide note
+                            let final_note = if note.is_none() {
+                                description
+                            } else {
+                                note
+                            };
+
+                            // Validate that we have at least a title now
+                            if final_title.trim().is_empty() {
+                                let _ = input_sender.send(BookmarkEditMsg::FetchMetadata); // This won't help, just show error
+                                return;
+                            }
+
+                            let _ = input_sender.send(BookmarkEditMsg::DoSaveAfterMetadata {
+                                title: final_title.trim().to_string(),
+                                url: url.trim().to_string(),
+                                note: final_note,
+                                tag_titles,
+                                is_edit,
+                                bookmark_id,
+                            });
+                        }
+                        Err(_e) => {
+                            // If metadata fetch fails but we have a title, proceed anyway
+                            if title.trim().is_empty() {
+                                let _ = input_sender.send(BookmarkEditMsg::MetadataFetchError(
+                                    "Could not fetch URL metadata".to_string(),
+                                ));
+                                return;
+                            }
+
+                            let _ = input_sender.send(BookmarkEditMsg::DoSaveAfterMetadata {
+                                title: title.trim().to_string(),
+                                url: url.trim().to_string(),
+                                note,
+                                tag_titles,
+                                is_edit,
+                                bookmark_id,
+                            });
+                        }
+                    }
+                });
             }
 
             BookmarkEditMsg::FetchMetadata => {
@@ -392,6 +421,39 @@ impl SimpleComponent for BookmarkEditDialog {
                         msg
                     )))
                     .unwrap();
+            }
+
+            BookmarkEditMsg::DoSaveAfterMetadata {
+                title,
+                url,
+                note,
+                tag_titles,
+                is_edit,
+                bookmark_id,
+            } => {
+                // Send appropriate output based on mode
+                if is_edit {
+                    if let Some(id) = bookmark_id {
+                        sender
+                            .output(BookmarkEditOutput::SaveEdit {
+                                id,
+                                title,
+                                url,
+                                note,
+                                tag_titles,
+                            })
+                            .unwrap();
+                    }
+                } else {
+                    sender
+                        .output(BookmarkEditOutput::SaveCreate {
+                            title,
+                            url,
+                            note,
+                            tag_titles,
+                        })
+                        .unwrap();
+                }
             }
 
             BookmarkEditMsg::Cancel => {

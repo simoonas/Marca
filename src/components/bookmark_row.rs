@@ -8,6 +8,7 @@ pub struct BookmarkRow {
     bookmark: Bookmark,
     tags: Vec<Tag>,
     hovered: bool,
+    favicon_data: Option<Vec<u8>>,
 }
 
 #[derive(Debug)]
@@ -60,40 +61,57 @@ impl FactoryComponent for BookmarkRow {
             gtk::Overlay {
                 #[wrap(Some)]
                 set_child = &gtk::Box {
-                    set_orientation: gtk::Orientation::Vertical,
-                    set_spacing: 8,
+                    set_orientation: gtk::Orientation::Horizontal,
+                    set_spacing: 12,
                     set_margin_all: 12,
 
-                    // Title and URL
+                    // Avatar on left with bookmark title text
+                    adw::Avatar {
+                        set_text: Some(&self.bookmark.title),
+                        set_size: 48,
+                        set_show_initials: true,
+                    },
+
+                    // Content box (title, URL, tags)
                     gtk::Box {
                         set_orientation: gtk::Orientation::Vertical,
                         set_spacing: 4,
+                        set_hexpand: true,
 
+                        // Title (top line)
                         gtk::Label {
-                            set_label: &self.bookmark.title,
+                            set_label: &truncate_text(&self.bookmark.title, 100),
                             set_halign: gtk::Align::Start,
                             set_xalign: 0.0,
                             add_css_class: "title-4",
-                            set_wrap: true,
-                            set_wrap_mode: gtk::pango::WrapMode::WordChar,
-                        },
-
-                        gtk::Label {
-                            set_label: &self.bookmark.url,
-                            set_halign: gtk::Align::Start,
-                            set_xalign: 0.0,
-                            add_css_class: "dim-label",
-                            add_css_class: "caption",
                             set_ellipsize: gtk::pango::EllipsizeMode::End,
                         },
-                    },
 
-                    // Tags row
-                    #[name = "tags_box"]
-                    gtk::Box {
-                        set_orientation: gtk::Orientation::Horizontal,
-                        set_spacing: 6,
-                        set_visible: !self.tags.is_empty(),
+                        // URL and tags (bottom line)
+                        gtk::Box {
+                            set_orientation: gtk::Orientation::Horizontal,
+                            set_spacing: 8,
+                            set_homogeneous: false,
+
+                            // URL
+                            gtk::Label {
+                                set_label: &truncate_text(&self.bookmark.url, 50),
+                                set_halign: gtk::Align::Start,
+                                set_xalign: 0.0,
+                                add_css_class: "dim-label",
+                                add_css_class: "caption",
+                                set_ellipsize: gtk::pango::EllipsizeMode::End,
+                            },
+
+                            // Tags badges container
+                            #[name = "tags_box"]
+                            gtk::Box {
+                                set_orientation: gtk::Orientation::Horizontal,
+                                set_spacing: 4,
+                                set_visible: !self.tags.is_empty(),
+                                set_halign: gtk::Align::Start,
+                            }
+                        }
                     }
                 },
 
@@ -135,6 +153,7 @@ impl FactoryComponent for BookmarkRow {
             bookmark: init.bookmark,
             tags: init.tags,
             hovered: false,
+            favicon_data: init.favicon_data,
         }
     }
 
@@ -147,14 +166,36 @@ impl FactoryComponent for BookmarkRow {
     ) -> Self::Widgets {
         let widgets = view_output!();
 
-        // Add tag buttons
-        for tag in &self.tags {
-            let btn = gtk::Button::builder()
-                .label(&tag.title)
-                .css_classes(vec!["pill".to_string()])
-                .sensitive(false)
-                .build();
-            widgets.tags_box.append(&btn);
+        // Add compact tag badges - show as many as fit, then "+X"
+        if !self.tags.is_empty() {
+            // We'll show up to 3 tags, then "+X" for remaining
+            let max_visible_tags = 3;
+            let visible_count = std::cmp::min(max_visible_tags, self.tags.len());
+
+            for (idx, tag) in self.tags.iter().enumerate() {
+                if idx < visible_count {
+                    // Create a simple label badge for each tag
+                    let badge = gtk::Label::builder()
+                        .label(&format!("#{}", tag.title))
+                        .css_classes(vec!["tag-badge".to_string(), "accent".to_string()])
+                        .build();
+                    badge.set_margin_start(2);
+                    badge.set_margin_end(2);
+                    widgets.tags_box.append(&badge);
+                }
+            }
+
+            // Show "+X" if there are more tags
+            if self.tags.len() > visible_count {
+                let remaining = self.tags.len() - visible_count;
+                let more_label = gtk::Label::builder()
+                    .label(&format!("+{}", remaining))
+                    .css_classes(vec!["tag-badge".to_string(), "accent".to_string()])
+                    .build();
+                more_label.set_margin_start(2);
+                more_label.set_margin_end(2);
+                widgets.tags_box.append(&more_label);
+            }
         }
 
         widgets
@@ -184,5 +225,14 @@ impl FactoryComponent for BookmarkRow {
                 }
             }
         }
+    }
+}
+
+/// Truncate text to a maximum length with ellipsis
+fn truncate_text(text: &str, max_len: usize) -> String {
+    if text.len() > max_len {
+        format!("{}...", &text[..max_len])
+    } else {
+        text.to_string()
     }
 }

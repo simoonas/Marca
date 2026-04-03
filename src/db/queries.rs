@@ -69,8 +69,21 @@ pub fn get_all_bookmarks(conn: &Connection) -> Result<Vec<BookmarkWithTags>> {
     let mut results = Vec::new();
     for bookmark_result in bookmark_iter {
         let bookmark = bookmark_result?;
-        let tags = get_tags_for_bookmark(conn, bookmark.id.unwrap())?;
-        results.push(BookmarkWithTags { bookmark, tags });
+        let bookmark_id = bookmark.id.unwrap();
+        let tags = get_tags_for_bookmark(conn, bookmark_id)?;
+
+        // Extract domain from URL and fetch favicon
+        let favicon_data = url::Url::parse(&bookmark.url)
+            .ok()
+            .and_then(|url| url.domain().map(|d| d.to_string()))
+            .and_then(|domain| get_favicon(conn, &domain).ok())
+            .flatten();
+
+        results.push(BookmarkWithTags {
+            bookmark,
+            tags,
+            favicon_data,
+        });
     }
 
     Ok(results)
@@ -132,6 +145,15 @@ pub fn search_bookmarks(
         })
     };
 
+    // Helper to load favicon for a bookmark
+    let load_favicon = |bookmark: &Bookmark, conn: &Connection| -> Option<Vec<u8>> {
+        url::Url::parse(&bookmark.url)
+            .ok()
+            .and_then(|url| url.domain().map(|d| d.to_string()))
+            .and_then(|domain| get_favicon(conn, &domain).ok())
+            .flatten()
+    };
+
     if let Some(search_text) = query {
         if tag_ids.is_empty() {
             // Text search only
@@ -148,7 +170,12 @@ pub fn search_bookmarks(
             for bookmark_result in bookmark_iter {
                 let bookmark = bookmark_result?;
                 let tags = get_tags_for_bookmark(conn, bookmark.id.unwrap())?;
-                results.push(BookmarkWithTags { bookmark, tags });
+                let favicon_data = load_favicon(&bookmark, conn);
+                results.push(BookmarkWithTags {
+                    bookmark,
+                    tags,
+                    favicon_data,
+                });
             }
         } else {
             // Text search + tag filtering
@@ -170,7 +197,12 @@ pub fn search_bookmarks(
             for bookmark_result in bookmark_iter {
                 let bookmark = bookmark_result?;
                 let tags = get_tags_for_bookmark(conn, bookmark.id.unwrap())?;
-                results.push(BookmarkWithTags { bookmark, tags });
+                let favicon_data = load_favicon(&bookmark, conn);
+                results.push(BookmarkWithTags {
+                    bookmark,
+                    tags,
+                    favicon_data,
+                });
             }
         }
     } else {
@@ -191,7 +223,12 @@ pub fn search_bookmarks(
         for bookmark_result in bookmark_iter {
             let bookmark = bookmark_result?;
             let tags = get_tags_for_bookmark(conn, bookmark.id.unwrap())?;
-            results.push(BookmarkWithTags { bookmark, tags });
+            let favicon_data = load_favicon(&bookmark, conn);
+            results.push(BookmarkWithTags {
+                bookmark,
+                tags,
+                favicon_data,
+            });
         }
     }
 
@@ -264,5 +301,37 @@ pub fn get_bookmark_by_id(conn: &Connection, id: i64) -> Result<BookmarkWithTags
     )?;
 
     let tags = get_tags_for_bookmark(conn, id)?;
-    Ok(BookmarkWithTags { bookmark, tags })
+
+    // Load favicon from database
+    let favicon_data = url::Url::parse(&bookmark.url)
+        .ok()
+        .and_then(|url| url.domain().map(|d| d.to_string()))
+        .and_then(|domain| get_favicon(conn, &domain).ok())
+        .flatten();
+
+    Ok(BookmarkWithTags {
+        bookmark,
+        tags,
+        favicon_data,
+    })
+}
+
+pub fn get_favicon(conn: &Connection, domain: &str) -> Result<Option<Vec<u8>>> {
+    let favicon: Option<Vec<u8>> = conn
+        .query_row(
+            "SELECT favicon FROM favicons WHERE domain = ?1",
+            params![domain],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(favicon)
+}
+
+pub fn insert_or_update_favicon(conn: &Connection, domain: &str, favicon: &[u8]) -> Result<()> {
+    conn.execute(
+        "INSERT INTO favicons (domain, favicon) VALUES (?1, ?2)
+         ON CONFLICT(domain) DO UPDATE SET favicon = ?2",
+        params![domain, favicon],
+    )?;
+    Ok(())
 }

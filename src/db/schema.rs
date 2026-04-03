@@ -24,6 +24,12 @@ CREATE TABLE IF NOT EXISTS bookmark_tags (
     FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
 )";
 
+pub const CREATE_FAVICONS_TABLE: &str = "
+CREATE TABLE IF NOT EXISTS favicons (
+    domain TEXT UNIQUE NOT NULL PRIMARY KEY,
+    favicon BLOB
+)";
+
 pub const CREATE_BOOKMARKS_FTS: &str = "
 CREATE VIRTUAL TABLE IF NOT EXISTS bookmarks_fts USING fts5(
     title,
@@ -48,6 +54,10 @@ pub const CREATE_TRIGGERS: &[&str] = &[
     END",
     "CREATE TRIGGER IF NOT EXISTS bookmarks_ad AFTER DELETE ON bookmarks BEGIN
         DELETE FROM bookmarks_fts WHERE rowid = old.id;
+        DELETE FROM favicons WHERE domain NOT IN (
+            SELECT DISTINCT substr(url, instr(url, '://') + 3, instr(substr(url, instr(url, '://') + 3), '/') - 1) 
+            FROM bookmarks
+        );
     END",
     "CREATE TRIGGER IF NOT EXISTS bookmarks_au AFTER UPDATE ON bookmarks BEGIN
         UPDATE bookmarks_fts 
