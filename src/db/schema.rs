@@ -6,7 +6,9 @@ CREATE TABLE IF NOT EXISTS bookmarks (
     note TEXT,
     content TEXT,
     created INTEGER NOT NULL,
-    changed INTEGER NOT NULL
+    changed INTEGER NOT NULL,
+    favicon_hash INTEGER,
+    FOREIGN KEY (favicon_hash) REFERENCES favicons(hash)
 )";
 
 pub const CREATE_TAGS_TABLE: &str = "
@@ -26,8 +28,8 @@ CREATE TABLE IF NOT EXISTS bookmark_tags (
 
 pub const CREATE_FAVICONS_TABLE: &str = "
 CREATE TABLE IF NOT EXISTS favicons (
-    domain TEXT UNIQUE NOT NULL PRIMARY KEY,
-    favicon BLOB
+    hash INTEGER PRIMARY KEY,
+    favicon BLOB NOT NULL
 )";
 
 pub const CREATE_BOOKMARKS_FTS: &str = "
@@ -45,6 +47,7 @@ pub const CREATE_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_bookmark_tags_tag ON bookmark_tags(tag_id)",
     "CREATE INDEX IF NOT EXISTS idx_bookmarks_created ON bookmarks(created DESC)",
     "CREATE INDEX IF NOT EXISTS idx_bookmarks_changed ON bookmarks(changed DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_bookmarks_favicon_hash ON bookmarks(favicon_hash)",
 ];
 
 pub const CREATE_TRIGGERS: &[&str] = &[

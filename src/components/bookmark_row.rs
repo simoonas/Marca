@@ -21,9 +21,15 @@ impl BookmarkRow {
             let cursor = Cursor::new(data.clone());
             match gdk_pixbuf::Pixbuf::from_read(cursor) {
                 Ok(pixbuf) => {
-                    // Scale pixbuf to 48x48 if needed
-                    let scaled = if pixbuf.width() != 48 || pixbuf.height() != 48 {
-                        pixbuf.scale_simple(48, 48, gdk_pixbuf::InterpType::Bilinear)
+                    // Don't upscale low-res favicons (typically 16x16 or 32x32)
+                    // Only downscale if larger than 48x48
+                    let target_size = 48;
+                    let scaled = if pixbuf.width() > target_size || pixbuf.height() > target_size {
+                        pixbuf.scale_simple(
+                            target_size,
+                            target_size,
+                            gdk_pixbuf::InterpType::Bilinear,
+                        )
                     } else {
                         Some(pixbuf)
                     };
@@ -64,8 +70,8 @@ impl FactoryComponent for BookmarkRow {
             set_activatable: true,
             set_selectable: false,
             add_css_class: "card",
-            set_margin_top: 6,
-            set_margin_bottom: 6,
+            set_margin_top: 3,
+            set_margin_bottom: 3,
             set_margin_start: 0,
             set_margin_end: 0,
 
@@ -86,22 +92,21 @@ impl FactoryComponent for BookmarkRow {
                 #[wrap(Some)]
                 set_child = &gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
-                    set_spacing: 12,
-                    set_margin_all: 12,
+                    set_spacing: 8,
+                    set_margin_all: 8,
 
-                     // Avatar on left with favicon or initials fallback
-                     #[name = "avatar"]
-                     adw::Avatar {
-                        set_text: Some(&self.bookmark.title),
-                         set_size: 48,
-                         set_show_initials: true,
-                         add_css_class: "rounded",
+                     // Favicon icon on left with fallback placeholder
+                     #[name = "favicon"]
+                     gtk::Image {
+                         set_icon_name: Some("image-missing-symbolic"),
+                         set_pixel_size: 48,
+                         add_css_class: "favicon-icon",
                      },
 
                     // Content box (title, URL, tags)
                     gtk::Box {
                         set_orientation: gtk::Orientation::Vertical,
-                        set_spacing: 4,
+                        set_spacing: 2,
                         set_hexpand: true,
 
                         // Title (top line)
@@ -116,7 +121,7 @@ impl FactoryComponent for BookmarkRow {
                         // URL and tags (bottom line)
                         gtk::Box {
                             set_orientation: gtk::Orientation::Horizontal,
-                            set_spacing: 8,
+                            set_spacing: 6,
                             set_homogeneous: false,
 
                             // URL
@@ -144,8 +149,8 @@ impl FactoryComponent for BookmarkRow {
                 add_overlay = &gtk::Box {
                     set_halign: gtk::Align::End,
                     set_valign: gtk::Align::Start,
-                    set_margin_top: 6,
-                    set_margin_end: 6,
+                    set_margin_top: 4,
+                    set_margin_end: 4,
                     set_spacing: 4,
                     #[watch]
                     set_visible: self.hovered,
@@ -192,10 +197,9 @@ impl FactoryComponent for BookmarkRow {
     ) -> Self::Widgets {
         let widgets = view_output!();
 
-        // Set favicon as custom image on avatar if available
+        // Set favicon as paintable if available, otherwise keep placeholder icon
         if let Some(texture) = self.get_favicon_texture() {
-            widgets.avatar.set_custom_image(Some(&texture));
-            widgets.avatar.set_show_initials(false);
+            widgets.favicon.set_paintable(Some(&texture));
         }
 
         // Add compact tag badges - show as many as fit, then "+X"

@@ -7,6 +7,7 @@ pub struct Bookmark {
     pub content: Option<String>,
     pub created: i64,
     pub changed: i64,
+    pub favicon_hash: Option<i32>,
 }
 
 impl Bookmark {
@@ -24,6 +25,7 @@ impl Bookmark {
             content: None,
             created: now,
             changed: now,
+            favicon_hash: None,
         }
     }
 }

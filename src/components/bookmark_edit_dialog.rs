@@ -270,7 +270,7 @@ impl SimpleComponent for BookmarkEditDialog {
             BookmarkEditMsg::Save => {
                 // Read all values from widgets
                 let title = self.title_entry.text().to_string();
-                let url = self.url_entry.text().to_string();
+                let mut url = self.url_entry.text().to_string();
 
                 // Validation
                 if url.trim().is_empty() {
@@ -280,6 +280,15 @@ impl SimpleComponent for BookmarkEditDialog {
                         ))
                         .unwrap();
                     return;
+                }
+
+                // Normalize URL: add http:// if no schema present
+                let url_trimmed = url.trim();
+                let has_schema = regex::Regex::new(r"^[a-zA-Z0-9+.-]*://")
+                    .map(|re| re.is_match(url_trimmed))
+                    .unwrap_or(false);
+                if !has_schema {
+                    url = format!("https://{}", url_trimmed);
                 }
 
                 // Read note from TextView buffer

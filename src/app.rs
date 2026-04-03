@@ -251,6 +251,16 @@ impl SimpleComponent for App {
         let toast_overlay = &model.toast_overlay;
         let widgets = view_output!();
 
+        // Load custom CSS for favicon styling
+        let css_provider = gtk::CssProvider::new();
+        css_provider.load_from_data(
+            ".favicon-icon { border-radius: 6px; }"
+        );
+        gtk::style_context_add_provider_for_display(
+            &adw::prelude::WidgetExt::display(&root),
+            &css_provider,
+            gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+        );
         // Load all bookmarks and tags initially
         sender.input(AppMsg::RefreshBookmarks);
         sender.input(AppMsg::RefreshTags);
@@ -488,19 +498,29 @@ impl SimpleComponent for App {
 
                         // Spawn async favicon fetch AFTER dialog closed (non-blocking)
                         let url_clone = url.clone();
+                        let sender_clone = _sender.clone();
                         tokio::spawn(async move {
-                            // Extract domain from URL
-                            if let Ok(parsed_url) = url::Url::parse(&url_clone) {
-                                if let Some(domain_str) = parsed_url.host_str().map(|s| s.to_string()) {
-                                    // Fetch favicon in background
-                                    if let Some(favicon_data) = crate::fetch_metadata::fetch_favicon(&url_clone).await {
-                                        // Create new DB connection for async task
-                                        if let Ok(db) = crate::db::Database::new() {
-                                            if let Err(e) = db.insert_or_update_favicon(&domain_str, &favicon_data) {
-                                                eprintln!("Error saving favicon for {}: {}", domain_str, e);
-                                            }
-                                        }
+                            // Run blocking favicon fetch in a blocking thread pool
+                            let result = tokio::task::spawn_blocking(move || {
+                                crate::fetch_metadata::fetch_favicon_sync(&url_clone)
+                            })
+                            .await
+                            .ok()
+                            .flatten();
+
+                            if let Some((hash, favicon_data)) = result {
+                                // Create new DB connection for async task
+                                if let Ok(db) = crate::db::Database::new() {
+                                    // Insert favicon if new (INSERT OR IGNORE handles hash collisions)
+                                    if let Err(e) = db.insert_favicon_if_new(hash, &favicon_data) {
+                                        eprintln!("Error saving favicon data: {}", e);
                                     }
+                                    // Update bookmark's favicon_hash field
+                                    if let Err(e) = db.update_bookmark_favicon_hash(id, hash) {
+                                        eprintln!("Error updating bookmark favicon hash: {}", e);
+                                    }
+                                    // Refresh bookmarks to show new favicon
+                                    sender_clone.input(AppMsg::RefreshBookmarks);
                                 }
                             }
                         });
@@ -553,19 +573,29 @@ impl SimpleComponent for App {
 
                         // Spawn async favicon fetch AFTER dialog closed (non-blocking)
                         let url_clone = url.clone();
+                        let sender_clone = _sender.clone();
                         tokio::spawn(async move {
-                            // Extract domain from URL
-                            if let Ok(parsed_url) = url::Url::parse(&url_clone) {
-                                if let Some(domain_str) = parsed_url.host_str().map(|s| s.to_string()) {
-                                    // Fetch favicon in background
-                                    if let Some(favicon_data) = crate::fetch_metadata::fetch_favicon(&url_clone).await {
-                                        // Create new DB connection for async task
-                                        if let Ok(db) = crate::db::Database::new() {
-                                            if let Err(e) = db.insert_or_update_favicon(&domain_str, &favicon_data) {
-                                                eprintln!("Error saving favicon for {}: {}", domain_str, e);
-                                            }
-                                        }
+                            // Run blocking favicon fetch in a blocking thread pool
+                            let result = tokio::task::spawn_blocking(move || {
+                                crate::fetch_metadata::fetch_favicon_sync(&url_clone)
+                            })
+                            .await
+                            .ok()
+                            .flatten();
+
+                            if let Some((hash, favicon_data)) = result {
+                                // Create new DB connection for async task
+                                if let Ok(db) = crate::db::Database::new() {
+                                    // Insert favicon if new (INSERT OR IGNORE handles hash collisions)
+                                    if let Err(e) = db.insert_favicon_if_new(hash, &favicon_data) {
+                                        eprintln!("Error saving favicon data: {}", e);
                                     }
+                                    // Update bookmark's favicon_hash field
+                                    if let Err(e) = db.update_bookmark_favicon_hash(bookmark_id, hash) {
+                                        eprintln!("Error updating bookmark favicon hash: {}", e);
+                                    }
+                                    // Refresh bookmarks to show new favicon
+                                    sender_clone.input(AppMsg::RefreshBookmarks);
                                 }
                             }
                         });

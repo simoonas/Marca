@@ -1,5 +1,6 @@
 use readability::extractor::scrape;
 use std::error::Error;
+use std::io::Cursor;
 use std::time::Duration;
 
 /// Quick metadata fetch result (title and description only, no favicon)
@@ -38,56 +39,47 @@ pub async fn fetch_quick_metadata(url: &str) -> Result<QuickMetadata, Box<dyn Er
     .and_then(|r| r)
 }
 
-/// Fetch favicon only (async, can be spawned after save)
-pub async fn fetch_favicon(url: &str) -> Option<Vec<u8>> {
-    let url_string = url.to_string();
-    
-    tokio::task::spawn_blocking(move || {
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0")
-            .build()
-            .ok()?;
-        
-        fetch_favicon_sync(&client, &url_string)
-    })
-    .await
-    .ok()
-    .flatten()
+/// Calculate MMH3 hash of favicon data
+fn calculate_favicon_hash(data: &[u8]) -> i32 {
+    murmur3::murmur3_32(&mut Cursor::new(data), 0).unwrap_or(0) as i32
 }
 
-/// Synchronous favicon fetching (called within spawn_blocking)
-fn fetch_favicon_sync(client: &reqwest::blocking::Client, url: &str) -> Option<Vec<u8>> {
-    let domain = extract_domain_from_url_for_favicon(url)?;
+/// Fetch favicon synchronously for full URL (not domain)
+/// Returns (hash, data) tuple
+pub fn fetch_favicon_sync(url: &str) -> Option<(i32, Vec<u8>)> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0")
+        .build()
+        .ok()?;
     
-    // Try favicon.ico first
-    if let Some(data) = try_favicon_ico_sync(client, &domain) {
-        return Some(data);
+    // 1. Try Google s2/favicons first (sz=128) with FULL URL
+    if let Some(data) = try_google_favicon_sync(&client, url) {
+        let hash = calculate_favicon_hash(&data);
+        return Some((hash, data));
     }
     
-    // Try HTML link extraction
-    if let Some(data) = try_html_favicon_sync(client, &domain) {
-        return Some(data);
+    // 2. Try HTML <link> extraction
+    if let Some(data) = try_html_favicon_sync(&client, url) {
+        let hash = calculate_favicon_hash(&data);
+        return Some((hash, data));
     }
     
-    // Try Google favicon service as fallback
-    try_google_favicon_sync(client, &domain)
+    // 3. Try favicon.ico as last resort
+    if let Some(data) = try_favicon_ico_sync(&client, url) {
+        let hash = calculate_favicon_hash(&data);
+        return Some((hash, data));
+    }
+    
+    None
 }
 
-fn extract_domain_from_url_for_favicon(url: &str) -> Option<String> {
-    if let Ok(parsed) = url::Url::parse(url) {
-        parsed.host_str().map(|s| s.to_string())
-    } else {
-        None
-    }
-}
-
-fn try_favicon_ico_sync(client: &reqwest::blocking::Client, domain: &str) -> Option<Vec<u8>> {
-    let url = format!("https://{}/favicon.ico", domain);
-    let response = client.get(&url).send().ok()?;
+fn try_google_favicon_sync(client: &reqwest::blocking::Client, url: &str) -> Option<Vec<u8>> {
+    let fetch_url = format!("https://www.google.com/s2/favicons?domain={}&sz=128", url);
+    
+    let response = client.get(&fetch_url).send().ok()?;
     if response.status().is_success() {
         let bytes = response.bytes().ok()?.to_vec();
-        // Filter out very small responses (likely error pages)
         if bytes.len() >= 100 {
             return Some(bytes);
         }
@@ -95,13 +87,12 @@ fn try_favicon_ico_sync(client: &reqwest::blocking::Client, domain: &str) -> Opt
     None
 }
 
-fn try_html_favicon_sync(client: &reqwest::blocking::Client, domain: &str) -> Option<Vec<u8>> {
-    let base_url = format!("https://{}", domain);
-    let response = client.get(&base_url).send().ok()?;
+fn try_html_favicon_sync(client: &reqwest::blocking::Client, url: &str) -> Option<Vec<u8>> {
+    let response = client.get(url).send().ok()?;
     let html = response.text().ok()?;
     
     let favicon_href = extract_favicon_url_from_html(&html)?;
-    let favicon_url = resolve_url(&base_url, &favicon_href);
+    let favicon_url = resolve_url(url, &favicon_href);
     
     let response = client.get(&favicon_url).send().ok()?;
     if response.status().is_success() {
@@ -113,12 +104,14 @@ fn try_html_favicon_sync(client: &reqwest::blocking::Client, domain: &str) -> Op
     None
 }
 
-fn try_google_favicon_sync(client: &reqwest::blocking::Client, domain: &str) -> Option<Vec<u8>> {
-    let url = format!("https://www.google.com/s2/favicons?domain={}&sz=64", domain);
-    let response = client.get(&url).send().ok()?;
+fn try_favicon_ico_sync(client: &reqwest::blocking::Client, url: &str) -> Option<Vec<u8>> {
+    let parsed = url::Url::parse(url).ok()?;
+    let base = format!("{}://{}", parsed.scheme(), parsed.host_str()?);
+    let favicon_url = format!("{}/favicon.ico", base);
+    
+    let response = client.get(&favicon_url).send().ok()?;
     if response.status().is_success() {
         let bytes = response.bytes().ok()?.to_vec();
-        // Filter out tiny responses (Google returns 1x1 pixel for unknown domains)
         if bytes.len() >= 100 {
             return Some(bytes);
         }
@@ -149,7 +142,6 @@ fn extract_favicon_url_from_html(html: &str) -> Option<String> {
         r#"<link[^>]*href="([^"]+)"[^>]*rel="shortcut icon""#,
         r#"<link[^>]*rel='icon'[^>]*href='([^']+)'"#,
         r#"<link[^>]*href='([^']+)'[^>]*rel='icon'"#,
-        // Also try apple-touch-icon as fallback (usually higher quality)
         r#"<link[^>]*rel="apple-touch-icon"[^>]*href="([^"]+)"#,
         r#"<link[^>]*href="([^"]+)"[^>]*rel="apple-touch-icon""#,
     ];
@@ -172,7 +164,6 @@ fn extract_description_from_text(text: &str) -> Option<String> {
         return None;
     }
     
-    // Clean and normalize the text
     let cleaned = text
         .lines()
         .map(|line| line.trim())
@@ -180,11 +171,9 @@ fn extract_description_from_text(text: &str) -> Option<String> {
         .collect::<Vec<_>>()
         .join(" ");
     
-    // Limit to a reasonable length for the note field
     let max_len = 300;
     
     if cleaned.len() > max_len {
-        // Try to break at a sentence boundary for better readability
         if let Some(period_pos) = cleaned[..max_len]
             .rfind('.')
             .filter(|&pos| pos > max_len / 2)
@@ -206,11 +195,9 @@ fn extract_description_from_text(text: &str) -> Option<String> {
 fn extract_domain_from_url(url: &str) -> String {
     if let Ok(parsed) = url::Url::parse(url) {
         if let Some(host) = parsed.host_str() {
-            // Remove www. prefix if present
             let domain = host.strip_prefix("www.").unwrap_or(host);
             return domain.to_string();
         }
     }
-    // Fallback to the full URL if parsing fails
     url.to_string()
 }

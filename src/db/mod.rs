@@ -131,11 +131,11 @@ impl Database {
         queries::get_bookmark_by_id(&self.conn, id)
     }
 
-    pub fn get_favicon(&self, domain: &str) -> Result<Option<Vec<u8>>> {
-        queries::get_favicon(&self.conn, domain)
+    pub fn insert_favicon_if_new(&self, hash: i32, data: &[u8]) -> Result<()> {
+        queries::insert_favicon_if_new(&self.conn, hash, data)
     }
 
-    pub fn insert_or_update_favicon(&self, domain: &str, favicon: &[u8]) -> Result<()> {
-        queries::insert_or_update_favicon(&self.conn, domain, favicon)
+    pub fn update_bookmark_favicon_hash(&self, bookmark_id: i64, hash: i32) -> Result<()> {
+        queries::update_bookmark_favicon_hash(&self.conn, bookmark_id, hash)
     }
 }

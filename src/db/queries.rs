@@ -3,8 +3,8 @@ use rusqlite::{params, Connection, OptionalExtension, Result};
 
 pub fn insert_bookmark(conn: &Connection, bookmark: &Bookmark) -> Result<i64> {
     conn.execute(
-        "INSERT INTO bookmarks (title, url, note, content, created, changed)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO bookmarks (title, url, note, content, created, changed, favicon_hash)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             bookmark.title,
             bookmark.url,
@@ -12,6 +12,7 @@ pub fn insert_bookmark(conn: &Connection, bookmark: &Bookmark) -> Result<i64> {
             bookmark.content,
             bookmark.created,
             bookmark.changed,
+            bookmark.favicon_hash,
         ],
     )?;
     Ok(conn.last_insert_rowid())
@@ -23,7 +24,6 @@ pub fn insert_tag(conn: &Connection, tag: &Tag) -> Result<i64> {
 }
 
 pub fn get_or_create_tag(conn: &Connection, title: &str) -> Result<i64> {
-    // Try to find existing tag
     let existing: Option<i64> = conn
         .query_row(
             "SELECT id FROM tags WHERE title = ?1",
@@ -35,7 +35,6 @@ pub fn get_or_create_tag(conn: &Connection, title: &str) -> Result<i64> {
     if let Some(id) = existing {
         Ok(id)
     } else {
-        // Create new tag
         let tag = Tag::new(title.to_string());
         insert_tag(conn, &tag)
     }
@@ -49,41 +48,49 @@ pub fn add_tag_to_bookmark(conn: &Connection, bookmark_id: i64, tag_id: i64) -> 
     Ok(())
 }
 
+fn map_bookmark_with_favicon(row: &rusqlite::Row) -> Result<(Bookmark, Option<Vec<u8>>)> {
+    let bookmark = Bookmark {
+        id: Some(row.get(0)?),
+        title: row.get(1)?,
+        url: row.get(2)?,
+        note: row.get(3)?,
+        content: row.get(4)?,
+        created: row.get(5)?,
+        changed: row.get(6)?,
+        favicon_hash: row.get(8)?,
+    };
+    let favicon_data: Option<Vec<u8>> = row.get(7)?;
+    Ok((bookmark, favicon_data))
+}
+
+fn load_bookmark_with_tags(
+    conn: &Connection,
+    bookmark: Bookmark,
+    favicon_data: Option<Vec<u8>>,
+) -> Result<BookmarkWithTags> {
+    let bookmark_id = bookmark.id.unwrap();
+    let tags = get_tags_for_bookmark(conn, bookmark_id)?;
+    Ok(BookmarkWithTags {
+        bookmark,
+        tags,
+        favicon_data,
+    })
+}
+
 pub fn get_all_bookmarks(conn: &Connection) -> Result<Vec<BookmarkWithTags>> {
     let mut stmt = conn.prepare(
-        "SELECT id, title, url, note, content, created, changed FROM bookmarks ORDER BY created DESC"
+        "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
+         FROM bookmarks b
+         LEFT JOIN favicons f ON b.favicon_hash = f.hash
+         ORDER BY b.created DESC"
     )?;
 
-    let bookmark_iter = stmt.query_map([], |row| {
-        Ok(Bookmark {
-            id: Some(row.get(0)?),
-            title: row.get(1)?,
-            url: row.get(2)?,
-            note: row.get(3)?,
-            content: row.get(4)?,
-            created: row.get(5)?,
-            changed: row.get(6)?,
-        })
-    })?;
+    let bookmark_iter = stmt.query_map([], map_bookmark_with_favicon)?;
 
     let mut results = Vec::new();
-    for bookmark_result in bookmark_iter {
-        let bookmark = bookmark_result?;
-        let bookmark_id = bookmark.id.unwrap();
-        let tags = get_tags_for_bookmark(conn, bookmark_id)?;
-
-        // Extract domain from URL and fetch favicon
-        let favicon_data = url::Url::parse(&bookmark.url)
-            .ok()
-            .and_then(|url| url.domain().map(|d| d.to_string()))
-            .and_then(|domain| get_favicon(conn, &domain).ok())
-            .flatten();
-
-        results.push(BookmarkWithTags {
-            bookmark,
-            tags,
-            favicon_data,
-        });
+    for result in bookmark_iter {
+        let (bookmark, favicon_data) = result?;
+        results.push(load_bookmark_with_tags(conn, bookmark, favicon_data)?);
     }
 
     Ok(results)
@@ -125,110 +132,74 @@ pub fn search_bookmarks(
     query: Option<&str>,
     tag_ids: &[i64],
 ) -> Result<Vec<BookmarkWithTags>> {
-    // No filters - return all
     if query.is_none() && tag_ids.is_empty() {
         return get_all_bookmarks(conn);
     }
 
     let mut results = Vec::new();
 
-    // Helper to map row to bookmark
-    let map_row = |row: &rusqlite::Row| -> Result<Bookmark> {
-        Ok(Bookmark {
-            id: Some(row.get(0)?),
-            title: row.get(1)?,
-            url: row.get(2)?,
-            note: row.get(3)?,
-            content: row.get(4)?,
-            created: row.get(5)?,
-            changed: row.get(6)?,
-        })
-    };
-
-    // Helper to load favicon for a bookmark
-    let load_favicon = |bookmark: &Bookmark, conn: &Connection| -> Option<Vec<u8>> {
-        url::Url::parse(&bookmark.url)
-            .ok()
-            .and_then(|url| url.domain().map(|d| d.to_string()))
-            .and_then(|domain| get_favicon(conn, &domain).ok())
-            .flatten()
-    };
-
     if let Some(search_text) = query {
         if tag_ids.is_empty() {
-            // Text search only
             let mut stmt = conn.prepare(
-                "SELECT DISTINCT b.id, b.title, b.url, b.note, b.content, b.created, b.changed
+                "SELECT DISTINCT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
                  FROM bookmarks b
                  JOIN bookmarks_fts fts ON b.id = fts.rowid
+                 LEFT JOIN favicons f ON b.favicon_hash = f.hash
                  WHERE bookmarks_fts MATCH ?1
                  ORDER BY rank",
             )?;
 
-            let bookmark_iter = stmt.query_map(params![search_text], map_row)?;
+            let bookmark_iter = stmt.query_map(params![search_text], map_bookmark_with_favicon)?;
 
-            for bookmark_result in bookmark_iter {
-                let bookmark = bookmark_result?;
-                let tags = get_tags_for_bookmark(conn, bookmark.id.unwrap())?;
-                let favicon_data = load_favicon(&bookmark, conn);
-                results.push(BookmarkWithTags {
-                    bookmark,
-                    tags,
-                    favicon_data,
-                });
+            for result in bookmark_iter {
+                let (bookmark, favicon_data) = result?;
+                results.push(load_bookmark_with_tags(conn, bookmark, favicon_data)?);
             }
         } else {
-            // Text search + tag filtering
             let tag_ids_json = serde_json::to_string(tag_ids).unwrap();
             let mut stmt = conn.prepare(
-                "SELECT DISTINCT b.id, b.title, b.url, b.note, b.content, b.created, b.changed
+                "SELECT DISTINCT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
                  FROM bookmarks b
                  JOIN bookmarks_fts fts ON b.id = fts.rowid
                  JOIN bookmark_tags bt ON b.id = bt.bookmark_id
+                 LEFT JOIN favicons f ON b.favicon_hash = f.hash
                  WHERE bookmarks_fts MATCH ?1 AND bt.tag_id IN (SELECT value FROM json_each(?2))
                  GROUP BY b.id
                  HAVING COUNT(DISTINCT bt.tag_id) = ?3
                  ORDER BY rank",
             )?;
 
-            let bookmark_iter =
-                stmt.query_map(params![search_text, tag_ids_json, tag_ids.len()], map_row)?;
+            let bookmark_iter = stmt.query_map(
+                params![search_text, tag_ids_json, tag_ids.len()],
+                map_bookmark_with_favicon,
+            )?;
 
-            for bookmark_result in bookmark_iter {
-                let bookmark = bookmark_result?;
-                let tags = get_tags_for_bookmark(conn, bookmark.id.unwrap())?;
-                let favicon_data = load_favicon(&bookmark, conn);
-                results.push(BookmarkWithTags {
-                    bookmark,
-                    tags,
-                    favicon_data,
-                });
+            for result in bookmark_iter {
+                let (bookmark, favicon_data) = result?;
+                results.push(load_bookmark_with_tags(conn, bookmark, favicon_data)?);
             }
         }
     } else {
-        // Tag filtering only
         let tag_ids_json = serde_json::to_string(tag_ids).unwrap();
         let mut stmt = conn.prepare(
-            "SELECT DISTINCT b.id, b.title, b.url, b.note, b.content, b.created, b.changed
+            "SELECT DISTINCT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
              FROM bookmarks b
              JOIN bookmark_tags bt ON b.id = bt.bookmark_id
+             LEFT JOIN favicons f ON b.favicon_hash = f.hash
              WHERE bt.tag_id IN (SELECT value FROM json_each(?1))
              GROUP BY b.id
              HAVING COUNT(DISTINCT bt.tag_id) = ?2
              ORDER BY b.created DESC",
         )?;
 
-        let bookmark_iter = stmt.query_map(params![tag_ids_json, tag_ids.len()], map_row)?;
+        let bookmark_iter = stmt.query_map(
+            params![tag_ids_json, tag_ids.len()],
+            map_bookmark_with_favicon,
+        )?;
 
-        for bookmark_result in bookmark_iter {
-            let bookmark = bookmark_result?;
-            let tags = get_tags_for_bookmark(conn, bookmark.id.unwrap())?;
-            let favicon_data = load_favicon(&bookmark, conn);
-            results.push(BookmarkWithTags {
-                bookmark,
-                tags,
-                favicon_data,
-            });
+        for result in bookmark_iter {
+            let (bookmark, favicon_data) = result?;
+            results.push(load_bookmark_with_tags(conn, bookmark, favicon_data)?);
         }
     }
 
@@ -259,16 +230,13 @@ pub fn update_bookmark_tags(
     bookmark_id: i64,
     tag_titles: &[String],
 ) -> Result<()> {
-    // Start transaction
     let tx = conn.unchecked_transaction()?;
 
-    // Remove all existing tags for this bookmark
     tx.execute(
         "DELETE FROM bookmark_tags WHERE bookmark_id = ?1",
         params![bookmark_id],
     )?;
 
-    // Add new tags
     for title in tag_titles {
         let tag_id = get_or_create_tag(&tx, title)?;
         add_tag_to_bookmark(&tx, bookmark_id, tag_id)?;
@@ -284,54 +252,30 @@ pub fn delete_bookmark(conn: &Connection, id: i64) -> Result<()> {
 }
 
 pub fn get_bookmark_by_id(conn: &Connection, id: i64) -> Result<BookmarkWithTags> {
-    let bookmark = conn.query_row(
-        "SELECT id, title, url, note, content, created, changed FROM bookmarks WHERE id = ?1",
+    let (bookmark, favicon_data) = conn.query_row(
+        "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
+         FROM bookmarks b
+         LEFT JOIN favicons f ON b.favicon_hash = f.hash
+         WHERE b.id = ?1",
         params![id],
-        |row| {
-            Ok(Bookmark {
-                id: Some(row.get(0)?),
-                title: row.get(1)?,
-                url: row.get(2)?,
-                note: row.get(3)?,
-                content: row.get(4)?,
-                created: row.get(5)?,
-                changed: row.get(6)?,
-            })
-        },
+        map_bookmark_with_favicon,
     )?;
 
-    let tags = get_tags_for_bookmark(conn, id)?;
-
-    // Load favicon from database
-    let favicon_data = url::Url::parse(&bookmark.url)
-        .ok()
-        .and_then(|url| url.domain().map(|d| d.to_string()))
-        .and_then(|domain| get_favicon(conn, &domain).ok())
-        .flatten();
-
-    Ok(BookmarkWithTags {
-        bookmark,
-        tags,
-        favicon_data,
-    })
+    load_bookmark_with_tags(conn, bookmark, favicon_data)
 }
 
-pub fn get_favicon(conn: &Connection, domain: &str) -> Result<Option<Vec<u8>>> {
-    let favicon: Option<Vec<u8>> = conn
-        .query_row(
-            "SELECT favicon FROM favicons WHERE domain = ?1",
-            params![domain],
-            |row| row.get(0),
-        )
-        .optional()?;
-    Ok(favicon)
-}
-
-pub fn insert_or_update_favicon(conn: &Connection, domain: &str, favicon: &[u8]) -> Result<()> {
+pub fn insert_favicon_if_new(conn: &Connection, hash: i32, data: &[u8]) -> Result<()> {
     conn.execute(
-        "INSERT INTO favicons (domain, favicon) VALUES (?1, ?2)
-         ON CONFLICT(domain) DO UPDATE SET favicon = ?2",
-        params![domain, favicon],
+        "INSERT OR IGNORE INTO favicons (hash, favicon) VALUES (?1, ?2)",
+        params![hash, data],
+    )?;
+    Ok(())
+}
+
+pub fn update_bookmark_favicon_hash(conn: &Connection, bookmark_id: i64, hash: i32) -> Result<()> {
+    conn.execute(
+        "UPDATE bookmarks SET favicon_hash = ?1 WHERE id = ?2",
+        params![hash, bookmark_id],
     )?;
     Ok(())
 }

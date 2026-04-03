@@ -18,6 +18,7 @@ pub fn generate_sample_bookmarks() -> Vec<(Bookmark, Vec<String>)> {
                 content: None,
                 created: now - 86400 * 20, // 20 days ago
                 changed: now - 86400 * 20,
+                favicon_hash: None,
             },
             vec![
                 "rust".to_string(),
@@ -37,6 +38,7 @@ pub fn generate_sample_bookmarks() -> Vec<(Bookmark, Vec<String>)> {
                 content: None,
                 created: now - 86400 * 15,
                 changed: now - 86400 * 15,
+                favicon_hash: None,
             },
             vec![
                 "rust".to_string(),
@@ -56,6 +58,7 @@ pub fn generate_sample_bookmarks() -> Vec<(Bookmark, Vec<String>)> {
                 content: None,
                 created: now - 86400 * 12,
                 changed: now - 86400 * 12,
+                favicon_hash: None,
             },
             vec!["rust".to_string(), "library".to_string()],
         ),
@@ -68,6 +71,7 @@ pub fn generate_sample_bookmarks() -> Vec<(Bookmark, Vec<String>)> {
                 content: None,
                 created: now - 86400 * 10,
                 changed: now - 86400 * 10,
+                favicon_hash: None,
             },
             vec![
                 "rust".to_string(),
@@ -85,6 +89,7 @@ pub fn generate_sample_bookmarks() -> Vec<(Bookmark, Vec<String>)> {
                 content: None,
                 created: now - 86400 * 8,
                 changed: now - 86400 * 8,
+                favicon_hash: None,
             },
             vec!["gtk".to_string(), "docs".to_string(), "api".to_string()],
         ),
@@ -97,6 +102,7 @@ pub fn generate_sample_bookmarks() -> Vec<(Bookmark, Vec<String>)> {
                 content: None,
                 created: now - 86400 * 6,
                 changed: now - 86400 * 6,
+                favicon_hash: None,
             },
             vec![
                 "rust".to_string(),
@@ -113,6 +119,7 @@ pub fn generate_sample_bookmarks() -> Vec<(Bookmark, Vec<String>)> {
                 content: None,
                 created: now - 86400 * 5,
                 changed: now - 86400 * 5,
+                favicon_hash: None,
             },
             vec![
                 "docs".to_string(),
@@ -129,6 +136,7 @@ pub fn generate_sample_bookmarks() -> Vec<(Bookmark, Vec<String>)> {
                 content: None,
                 created: now - 86400 * 3,
                 changed: now - 86400 * 3,
+                favicon_hash: None,
             },
             vec![
                 "rust".to_string(),
@@ -145,6 +153,7 @@ pub fn generate_sample_bookmarks() -> Vec<(Bookmark, Vec<String>)> {
                 content: None,
                 created: now - 86400 * 2,
                 changed: now - 86400 * 2,
+                favicon_hash: None,
             },
             vec!["gnome".to_string(), "design".to_string(), "gui".to_string()],
         ),
@@ -157,6 +166,7 @@ pub fn generate_sample_bookmarks() -> Vec<(Bookmark, Vec<String>)> {
                 content: None,
                 created: now - 86400,
                 changed: now - 86400,
+                favicon_hash: None,
             },
             vec![
                 "gnome".to_string(),
