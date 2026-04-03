@@ -297,8 +297,9 @@ impl SimpleComponent for BookmarkEditDialog {
                 let is_edit = self.bookmark_id.is_some();
                 let bookmark_id = self.bookmark_id;
 
-                // If title is provided, save immediately (fast path)
-                if !title.trim().is_empty() {
+                // Check if we need to fetch metadata (if title OR note is empty)
+                if !title.trim().is_empty() && note.is_some() {
+                    // Both title and note provided - save immediately (fast path)
                     if is_edit {
                         if let Some(id) = bookmark_id {
                             sender
@@ -324,17 +325,21 @@ impl SimpleComponent for BookmarkEditDialog {
                     return;
                 }
 
-                // No title provided - fetch metadata quickly (3s timeout)
+                // Title OR note is empty - fetch metadata with 5s timeout
                 let input_sender = sender.input_sender().clone();
                 let url_clone = url.clone();
                 glib::MainContext::default().spawn_local(async move {
                     match crate::fetch_metadata::fetch_quick_metadata(&url_clone).await {
                         Ok(metadata) => {
-                            let final_title = if metadata.title.trim().is_empty() {
-                                // Use URL as fallback title
-                                url_clone.clone()
+                            let final_title = if title.trim().is_empty() {
+                                if metadata.title.trim().is_empty() {
+                                    // Use URL as fallback title
+                                    url_clone.clone()
+                                } else {
+                                    metadata.title
+                                }
                             } else {
-                                metadata.title
+                                title.trim().to_string()
                             };
 
                             let final_note = if note.is_none() {
@@ -344,7 +349,7 @@ impl SimpleComponent for BookmarkEditDialog {
                             };
 
                             let _ = input_sender.send(BookmarkEditMsg::DoSaveAfterMetadata {
-                                title: final_title.trim().to_string(),
+                                title: final_title,
                                 url: url.trim().to_string(),
                                 note: final_note,
                                 tag_titles,
@@ -353,9 +358,14 @@ impl SimpleComponent for BookmarkEditDialog {
                             });
                         }
                         Err(_e) => {
-                            // Timeout or error - use URL as title
+                            // Timeout or error - use title if provided, otherwise URL
+                            let final_title = if title.trim().is_empty() {
+                                url_clone.clone()
+                            } else {
+                                title.trim().to_string()
+                            };
                             let _ = input_sender.send(BookmarkEditMsg::DoSaveAfterMetadata {
-                                title: url_clone.clone(),
+                                title: final_title,
                                 url: url.trim().to_string(),
                                 note,
                                 tag_titles,

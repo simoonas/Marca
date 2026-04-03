@@ -89,13 +89,14 @@ impl FactoryComponent for BookmarkRow {
                     set_spacing: 12,
                     set_margin_all: 12,
 
-                    // Avatar on left with favicon or initials fallback
-                    #[name = "avatar"]
-                    adw::Avatar {
+                     // Avatar on left with favicon or initials fallback
+                     #[name = "avatar"]
+                     adw::Avatar {
                         set_text: Some(&self.bookmark.title),
-                        set_size: 48,
-                        set_show_initials: true,
-                    },
+                         set_size: 48,
+                         set_show_initials: true,
+                         add_css_class: "rounded",
+                     },
 
                     // Content box (title, URL, tags)
                     gtk::Box {

@@ -485,6 +485,25 @@ impl SimpleComponent for App {
                         // Show success toast
                         let toast = adw::Toast::new("Bookmark updated");
                         self.toast_overlay.add_toast(toast);
+
+                        // Spawn async favicon fetch AFTER dialog closed (non-blocking)
+                        let url_clone = url.clone();
+                        tokio::spawn(async move {
+                            // Extract domain from URL
+                            if let Ok(parsed_url) = url::Url::parse(&url_clone) {
+                                if let Some(domain_str) = parsed_url.host_str().map(|s| s.to_string()) {
+                                    // Fetch favicon in background
+                                    if let Some(favicon_data) = crate::fetch_metadata::fetch_favicon(&url_clone).await {
+                                        // Create new DB connection for async task
+                                        if let Ok(db) = crate::db::Database::new() {
+                                            if let Err(e) = db.insert_or_update_favicon(&domain_str, &favicon_data) {
+                                                eprintln!("Error saving favicon for {}: {}", domain_str, e);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        });
                     }
                     Err(e) => {
                         eprintln!("Error updating bookmark: {}", e);

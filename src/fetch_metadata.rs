@@ -8,13 +8,13 @@ pub struct QuickMetadata {
     pub description: Option<String>,
 }
 
-/// Fetch title and description quickly (3s timeout)
+/// Fetch title and description quickly (5s timeout)
 /// Does NOT fetch favicon - that should be done async after dialog closes
 pub async fn fetch_quick_metadata(url: &str) -> Result<QuickMetadata, Box<dyn Error + Send + Sync>> {
     let url_string = url.to_string();
     
     // Use tokio timeout for the entire operation
-    tokio::time::timeout(Duration::from_secs(3), tokio::task::spawn_blocking(move || {
+    tokio::time::timeout(Duration::from_secs(5), tokio::task::spawn_blocking(move || {
         // Try to fetch and extract using readability
         match scrape(&url_string) {
             Ok(product) => {
@@ -54,59 +54,6 @@ pub async fn fetch_favicon(url: &str) -> Option<Vec<u8>> {
     .await
     .ok()
     .flatten()
-}
-
-/// Full metadata result including favicon
-pub struct UrlMetadata {
-    pub title: String,
-    pub description: Option<String>,
-    pub favicon: Option<Vec<u8>>,
-    pub had_extraction_error: bool,
-}
-
-/// Fetch all metadata for a URL including title, description, and favicon
-/// This is the unified fetch function to be called on Save
-pub async fn fetch_url_metadata_with_favicon(url: &str) -> Result<UrlMetadata, Box<dyn Error + Send + Sync>> {
-    let url_string = url.to_string();
-    
-    // Spawn blocking task since readability and HTTP requests use blocking operations
-    tokio::task::spawn_blocking(move || {
-        let client = reqwest::blocking::Client::builder()
-            .timeout(Duration::from_secs(10))
-            .user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0")
-            .build()
-            .ok();
-        
-        // Try to fetch and extract using readability
-        let (title, description, had_error) = match scrape(&url_string) {
-            Ok(product) => {
-                let is_title_empty = product.title.is_empty();
-                let title = if !is_title_empty {
-                    product.title
-                } else {
-                    extract_domain_from_url(&url_string)
-                };
-                let description = extract_description_from_text(&product.text);
-                let had_error = is_title_empty || description.is_none();
-                (title, description, had_error)
-            }
-            Err(_e) => {
-                let title = extract_domain_from_url(&url_string);
-                (title, None, true)
-            }
-        };
-        
-        // Now fetch favicon
-        let favicon = client.as_ref().and_then(|c| fetch_favicon_sync(c, &url_string));
-        
-        Ok::<_, Box<dyn Error + Send + Sync>>(UrlMetadata {
-            title,
-            description,
-            favicon,
-            had_extraction_error: had_error,
-        })
-    })
-    .await?
 }
 
 /// Synchronous favicon fetching (called within spawn_blocking)
