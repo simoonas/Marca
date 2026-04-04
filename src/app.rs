@@ -254,7 +254,7 @@ impl SimpleComponent for App {
         // Load custom CSS for favicon styling
         let css_provider = gtk::CssProvider::new();
         css_provider.load_from_data(
-            ".favicon-icon { border-radius: 6px; }"
+            ".favicon-icon { border-radius: 8px; min-width: 32px; min-height: 32px; }"
         );
         gtk::style_context_add_provider_for_display(
             &adw::prelude::WidgetExt::display(&root),

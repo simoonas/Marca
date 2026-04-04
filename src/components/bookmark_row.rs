@@ -96,12 +96,20 @@ impl FactoryComponent for BookmarkRow {
                     set_margin_all: 8,
 
                      // Favicon icon on left with fallback placeholder
-                     #[name = "favicon"]
-                     gtk::Image {
-                         set_icon_name: Some("image-missing-symbolic"),
-                         set_pixel_size: 48,
-                         add_css_class: "favicon-icon",
-                     },
+                      #[name = "favicon"]
+                      gtk::Picture {
+                          set_css_classes: &["favicon-icon"],
+                          set_can_shrink: true,
+                          set_visible: !self.favicon_data.is_none(),
+                      },
+
+                      #[name = "favicon_placeholder"]
+                      gtk::Image {
+                          set_icon_name: Some("image-missing-symbolic"),
+                          set_pixel_size: 32,
+                          add_css_class: "dim-label",
+                          set_visible: self.favicon_data.is_none(),
+                      },
 
                     // Content box (title, URL, tags)
                     gtk::Box {
@@ -197,7 +205,7 @@ impl FactoryComponent for BookmarkRow {
     ) -> Self::Widgets {
         let widgets = view_output!();
 
-        // Set favicon as paintable if available, otherwise keep placeholder icon
+        // Set favicon as paintable if available
         if let Some(texture) = self.get_favicon_texture() {
             widgets.favicon.set_paintable(Some(&texture));
         }
