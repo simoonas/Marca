@@ -3,6 +3,7 @@ mod components;
 mod db;
 mod fixtures;
 mod fetch_metadata;
+pub mod import;
 
 use relm4::RelmApp;
 

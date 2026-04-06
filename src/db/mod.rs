@@ -1,7 +1,9 @@
+pub mod import;
 pub mod models;
 pub mod queries;
 mod schema;
 
+pub use import::ImportResult;
 pub use models::{Bookmark, BookmarkWithTags, Tag};
 
 use rusqlite::{Connection, Result};
@@ -61,8 +63,6 @@ impl Database {
             self.conn.execute(trigger_sql, [])?;
         }
 
-        // Migration: drop old buggy trigger that incorrectly deletes favicons
-        let _ = self.conn.execute("DROP TRIGGER IF EXISTS bookmarks_ad", []);
         // Recreate with fixed version (no favicon cleanup)
         self.conn.execute(
             "CREATE TRIGGER IF NOT EXISTS bookmarks_ad AFTER DELETE ON bookmarks BEGIN
@@ -137,5 +137,12 @@ impl Database {
 
     pub fn update_bookmark_favicon_hash(&self, bookmark_id: i64, hash: i32) -> Result<()> {
         queries::update_bookmark_favicon_hash(&self.conn, bookmark_id, hash)
+    }
+
+    pub fn import_bookmarks(
+        &self,
+        bookmarks: Vec<(Bookmark, Vec<String>)>,
+    ) -> Result<ImportResult> {
+        import::import_bookmarks(&self.conn, bookmarks)
     }
 }

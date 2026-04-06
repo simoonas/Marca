@@ -139,6 +139,9 @@ pub fn search_bookmarks(
     let mut results = Vec::new();
 
     if let Some(search_text) = query {
+        // Enclose query in quotes for exact substring match across multiple words, escaping internal quotes
+        let fts_query = format!("\"{}\"", search_text.replace("\"", "\"\""));
+
         if tag_ids.is_empty() {
             let mut stmt = conn.prepare(
                 "SELECT DISTINCT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
@@ -149,7 +152,7 @@ pub fn search_bookmarks(
                  ORDER BY rank",
             )?;
 
-            let bookmark_iter = stmt.query_map(params![search_text], map_bookmark_with_favicon)?;
+            let bookmark_iter = stmt.query_map(params![fts_query], map_bookmark_with_favicon)?;
 
             for result in bookmark_iter {
                 let (bookmark, favicon_data) = result?;
@@ -170,7 +173,7 @@ pub fn search_bookmarks(
             )?;
 
             let bookmark_iter = stmt.query_map(
-                params![search_text, tag_ids_json, tag_ids.len()],
+                params![fts_query, tag_ids_json, tag_ids.len()],
                 map_bookmark_with_favicon,
             )?;
 

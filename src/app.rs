@@ -1,6 +1,6 @@
 use crate::components::{
     BookmarkEditDialog, BookmarkEditInit, BookmarkEditOutput, BookmarkRow, BookmarkRowOutput,
-    TagRow, TagRowOutput,
+    SettingsDialog, SettingsOutput, TagRow, TagRowOutput,
 };
 use crate::db::Database;
 use adw::prelude::*;
@@ -19,6 +19,7 @@ pub struct App {
     toast_overlay: adw::ToastOverlay,
     last_deleted_bookmark: Option<(i64, crate::db::models::BookmarkWithTags)>,
     window: adw::ApplicationWindow,
+    settings_dialog: Option<Controller<SettingsDialog>>,
 }
 
 #[derive(Debug)]
@@ -48,6 +49,7 @@ pub enum AppMsg {
     },
     ShowToast(String),
     UndoDelete,
+    OpenSettings,
 }
 
 #[relm4::component(pub)]
@@ -195,7 +197,12 @@ impl SimpleComponent for App {
 
                 gtk::ActionBar {
                     set_revealed: true,
-                    // Action buttons will be added here in future phase
+                    
+                    pack_start = &gtk::Button {
+                        set_icon_name: "cogged-wheel",
+                        set_tooltip_text: Some("Settings"),
+                        connect_clicked => AppMsg::OpenSettings,
+                    }
                 }
                 }
             }
@@ -243,6 +250,7 @@ impl SimpleComponent for App {
             toast_overlay: toast_overlay.clone(),
             last_deleted_bookmark: None,
             window: root.clone(),
+            settings_dialog: None,
         };
 
         let bookmarks_list = model.bookmarks.widget();
@@ -667,6 +675,24 @@ impl SimpleComponent for App {
 
                     let toast = adw::Toast::new("Undo is not fully implemented yet");
                     self.toast_overlay.add_toast(toast);
+                }
+            }
+
+            AppMsg::OpenSettings => {
+                // Create settings dialog if not exists
+                if self.settings_dialog.is_none() {
+                    let dialog = SettingsDialog::builder()
+                        .launch(())
+                        .forward(_sender.input_sender(), |output| match output {
+                            SettingsOutput::RefreshBookmarks => AppMsg::RefreshBookmarks,
+                            SettingsOutput::ShowToast(msg) => AppMsg::ShowToast(msg),
+                        });
+                    self.settings_dialog = Some(dialog);
+                }
+
+                // Present the dialog
+                if let Some(ref dialog) = self.settings_dialog {
+                    dialog.widget().present(Some(&self.window));
                 }
             }
         }
