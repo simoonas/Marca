@@ -310,6 +310,8 @@ impl SimpleComponent for App {
         });
         model.window.add_controller(key_controller);
 
+        model.bookmark_search_entry.grab_focus();
+
         // Load custom CSS for favicon styling
         let css_provider = gtk::CssProvider::new();
         css_provider.load_from_data(
