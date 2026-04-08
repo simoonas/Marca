@@ -2,8 +2,8 @@ use crate::components::{
     BookmarkEditDialog, BookmarkEditInit, BookmarkEditOutput, BookmarkRow, BookmarkRowOutput,
     SettingsDialog, SettingsOutput, TagRow, TagRowOutput,
 };
-use crate::db::models::{SortDirection, SortField};
 use crate::db::Database;
+use crate::db::models::{SortDirection, SortField};
 use adw::prelude::*;
 use relm4::factory::FactoryVecDeque;
 use relm4::prelude::*;
@@ -213,27 +213,31 @@ impl SimpleComponent for App {
                                         }
                                     },
 
-                                    gtk::Box {
-                                        add_css_class: "linked",
-                                        set_margin_start: 6,
+                                gtk::Box {
+                                    add_css_class: "linked",
+                                    set_margin_start: 3,
+                                    set_spacing: 0,
 
-                                        #[name = "sort_field_button"]
-                                        gtk::Button {
-                                            set_label: "Created",
-                                            connect_clicked[sender] => move |_| {
-                                                sender.input(AppMsg::CycleSortField);
-                                            }
-                                        },
+                                    #[name = "sort_field_button"]
+                                    gtk::Button {
+                                        set_label: "Created",
+                                        set_width_request: 72,
+                                        add_css_class: "compact",
+                                        connect_clicked[sender] => move |_| {
+                                            sender.input(AppMsg::CycleSortField);
+                                        }
+                                    },
 
-                                        #[name = "sort_direction_button"]
-                                        gtk::Button {
-                                            set_label: "↓",
-                                            set_width_request: 40,
-                                            connect_clicked[sender] => move |_| {
-                                                sender.input(AppMsg::CycleSortDirection);
-                                            }
+                                    #[name = "sort_direction_button"]
+                                    gtk::Button {
+                                        set_label: "↓",
+                                        set_width_request: 38,
+                                        add_css_class: "compact",
+                                        connect_clicked[sender] => move |_| {
+                                            sender.input(AppMsg::CycleSortDirection);
                                         }
                                     }
+                                }
                                 }
                             },
 
@@ -255,7 +259,7 @@ impl SimpleComponent for App {
 
                 gtk::ActionBar {
                     set_revealed: true,
-                    
+
                     pack_start = &gtk::Button {
                         set_icon_name: "cogged-wheel",
                         set_tooltip_text: Some("Settings"),
@@ -344,24 +348,46 @@ impl SimpleComponent for App {
             use gtk::gdk::ModifierType;
             let ctrl = state.contains(ModifierType::CONTROL_MASK);
             match (key, ctrl) {
-                (Key::j | Key::n, true) => { sender_clone.input(AppMsg::NavigateNext); gtk::glib::Propagation::Stop }
-                (Key::k | Key::p, true) => { sender_clone.input(AppMsg::NavigatePrev); gtk::glib::Propagation::Stop }
-                (Key::Down, false) => { sender_clone.input(AppMsg::NavigateNext); gtk::glib::Propagation::Stop }
-                (Key::Up, false) => { sender_clone.input(AppMsg::NavigatePrev); gtk::glib::Propagation::Stop }
-                (Key::Tab, false) => { sender_clone.input(AppMsg::NavigateTab); gtk::glib::Propagation::Stop }
-                (Key::l, true) => { sender_clone.input(AppMsg::FocusBookmarkSearch); gtk::glib::Propagation::Stop }
-                (Key::h, true) => { sender_clone.input(AppMsg::FocusTagSearch); gtk::glib::Propagation::Stop }
-                _ => gtk::glib::Propagation::Proceed
+                (Key::j | Key::n, true) => {
+                    sender_clone.input(AppMsg::NavigateNext);
+                    gtk::glib::Propagation::Stop
+                }
+                (Key::k | Key::p, true) => {
+                    sender_clone.input(AppMsg::NavigatePrev);
+                    gtk::glib::Propagation::Stop
+                }
+                (Key::Down, false) => {
+                    sender_clone.input(AppMsg::NavigateNext);
+                    gtk::glib::Propagation::Stop
+                }
+                (Key::Up, false) => {
+                    sender_clone.input(AppMsg::NavigatePrev);
+                    gtk::glib::Propagation::Stop
+                }
+                (Key::Tab, false) => {
+                    sender_clone.input(AppMsg::NavigateTab);
+                    gtk::glib::Propagation::Stop
+                }
+                (Key::l, true) => {
+                    sender_clone.input(AppMsg::FocusBookmarkSearch);
+                    gtk::glib::Propagation::Stop
+                }
+                (Key::h, true) => {
+                    sender_clone.input(AppMsg::FocusTagSearch);
+                    gtk::glib::Propagation::Stop
+                }
+                _ => gtk::glib::Propagation::Proceed,
             }
         });
         model.window.add_controller(key_controller);
 
         model.bookmark_search_entry.grab_focus();
 
-        // Load custom CSS for favicon styling
+        // Load custom CSS for favicon styling and compact buttons
         let css_provider = gtk::CssProvider::new();
         css_provider.load_from_data(
-            ".favicon-icon { border-radius: 8px; min-width: 32px; min-height: 32px; }"
+            ".favicon-icon { border-radius: 8px; min-width: 32px; min-height: 32px; }
+             button.compact { padding: 0; margin: 0; min-height: 24px; font-size: 0.85em; }",
         );
         gtk::style_context_add_provider_for_display(
             &adw::prelude::WidgetExt::display(&root),
@@ -383,7 +409,8 @@ impl SimpleComponent for App {
                 // If query changed state and current sort is not available, reset
                 if self.bookmark_search.is_empty() && self.sort_field == SortField::Relevance {
                     self.sort_field = SortField::Created;
-                    self.sort_field_button.set_label(self.sort_field.display_name());
+                    self.sort_field_button
+                        .set_label(self.sort_field.display_name());
                 }
 
                 _sender.input(AppMsg::RefreshBookmarks);
@@ -397,12 +424,23 @@ impl SimpleComponent for App {
             AppMsg::TagToggled(tag_id) => {
                 let mut focus_search = false;
                 if let Some(focused) = gtk::prelude::RootExt::focus(&self.window) {
-                    if let Some(row) = focused.ancestor(gtk::ListBoxRow::static_type()).and_downcast::<gtk::ListBoxRow>() {
+                    if let Some(row) = focused
+                        .ancestor(gtk::ListBoxRow::static_type())
+                        .and_downcast::<gtk::ListBoxRow>()
+                    {
                         let row_widget = row.upcast_ref::<gtk::Widget>();
-                        if row_widget.is_ancestor(self.pinned_tags.widget().upcast_ref::<gtk::Widget>()) {
-                            if self.pinned_tags.guard().len() == 1 { focus_search = true; }
-                        } else if row_widget.is_ancestor(self.unpinned_tags.widget().upcast_ref::<gtk::Widget>()) {
-                            if self.unpinned_tags.guard().len() == 1 { focus_search = true; }
+                        if row_widget
+                            .is_ancestor(self.pinned_tags.widget().upcast_ref::<gtk::Widget>())
+                        {
+                            if self.pinned_tags.guard().len() == 1 {
+                                focus_search = true;
+                            }
+                        } else if row_widget
+                            .is_ancestor(self.unpinned_tags.widget().upcast_ref::<gtk::Widget>())
+                        {
+                            if self.unpinned_tags.guard().len() == 1 {
+                                focus_search = true;
+                            }
                         }
                     }
                 }
@@ -472,14 +510,20 @@ impl SimpleComponent for App {
 
             AppMsg::RefreshBookmarks => {
                 let results = if self.bookmark_search.is_empty() && self.pinned_tag_ids.is_empty() {
-                    self.db.get_all_bookmarks_with_sort(self.sort_field, self.sort_direction)
+                    self.db
+                        .get_all_bookmarks_with_sort(self.sort_field, self.sort_direction)
                 } else {
                     let query = if self.bookmark_search.is_empty() {
                         None
                     } else {
                         Some(self.bookmark_search.as_str())
                     };
-                    self.db.search_bookmarks_with_sort(query, &self.pinned_tag_ids, self.sort_field, self.sort_direction)
+                    self.db.search_bookmarks_with_sort(
+                        query,
+                        &self.pinned_tag_ids,
+                        self.sort_field,
+                        self.sort_direction,
+                    )
                 };
 
                 match results {
@@ -721,7 +765,9 @@ impl SimpleComponent for App {
                                         eprintln!("Error saving favicon data: {}", e);
                                     }
                                     // Update bookmark's favicon_hash field
-                                    if let Err(e) = db.update_bookmark_favicon_hash(bookmark_id, hash) {
+                                    if let Err(e) =
+                                        db.update_bookmark_favicon_hash(bookmark_id, hash)
+                                    {
                                         eprintln!("Error updating bookmark favicon hash: {}", e);
                                     }
                                     // Refresh bookmarks to show new favicon
@@ -808,10 +854,13 @@ impl SimpleComponent for App {
                     let unpinned = self.unpinned_tags.widget();
                     let pinned_widget = pinned.upcast_ref::<gtk::Widget>();
                     let unpinned_widget = unpinned.upcast_ref::<gtk::Widget>();
-                    
-                    if focused_widget == tag_search || focused_widget.is_ancestor(tag_search)
-                        || focused_widget == pinned_widget || focused_widget.is_ancestor(pinned_widget)
-                        || focused_widget == unpinned_widget || focused_widget.is_ancestor(unpinned_widget) 
+
+                    if focused_widget == tag_search
+                        || focused_widget.is_ancestor(tag_search)
+                        || focused_widget == pinned_widget
+                        || focused_widget.is_ancestor(pinned_widget)
+                        || focused_widget == unpinned_widget
+                        || focused_widget.is_ancestor(unpinned_widget)
                     {
                         self.shortcut_label.set_accelerator("<Ctrl>l");
                         self.shortcut_label.set_disabled_text("Search bookmarks");
@@ -819,8 +868,10 @@ impl SimpleComponent for App {
                         let bm_search = self.bookmark_search_entry.upcast_ref::<gtk::Widget>();
                         let bms = self.bookmarks.widget();
                         let bms_widget = bms.upcast_ref::<gtk::Widget>();
-                        if focused_widget == bm_search || focused_widget.is_ancestor(bm_search)
-                            || focused_widget == bms_widget || focused_widget.is_ancestor(bms_widget) 
+                        if focused_widget == bm_search
+                            || focused_widget.is_ancestor(bm_search)
+                            || focused_widget == bms_widget
+                            || focused_widget.is_ancestor(bms_widget)
                         {
                             self.shortcut_label.set_accelerator("<Ctrl>h");
                             self.shortcut_label.set_disabled_text("Search tags");
@@ -840,35 +891,67 @@ impl SimpleComponent for App {
             AppMsg::NavigateNext | AppMsg::NavigateTab => {
                 if let Some(focused) = gtk::prelude::RootExt::focus(&self.window) {
                     let focused_widget = focused.upcast_ref::<gtk::Widget>();
-                    let is_tag_search = focused_widget == self.tag_search_entry.upcast_ref::<gtk::Widget>() || focused_widget.is_ancestor(self.tag_search_entry.upcast_ref::<gtk::Widget>());
-                    let is_bm_search = focused_widget == self.bookmark_search_entry.upcast_ref::<gtk::Widget>() || focused_widget.is_ancestor(self.bookmark_search_entry.upcast_ref::<gtk::Widget>());
+                    let is_tag_search = focused_widget
+                        == self.tag_search_entry.upcast_ref::<gtk::Widget>()
+                        || focused_widget
+                            .is_ancestor(self.tag_search_entry.upcast_ref::<gtk::Widget>());
+                    let is_bm_search = focused_widget
+                        == self.bookmark_search_entry.upcast_ref::<gtk::Widget>()
+                        || focused_widget
+                            .is_ancestor(self.bookmark_search_entry.upcast_ref::<gtk::Widget>());
 
                     if is_tag_search {
-                        if let Some(first) = self.pinned_tags.widget().row_at_index(0).or_else(|| self.unpinned_tags.widget().row_at_index(0)) {
+                        if let Some(first) = self
+                            .pinned_tags
+                            .widget()
+                            .row_at_index(0)
+                            .or_else(|| self.unpinned_tags.widget().row_at_index(0))
+                        {
                             first.grab_focus();
                         }
                     } else if is_bm_search {
                         if let Some(first) = self.bookmarks.widget().row_at_index(0) {
                             first.grab_focus();
                         }
-                    } else if let Some(row) = focused.ancestor(gtk::ListBoxRow::static_type()).and_downcast::<gtk::ListBoxRow>() {
+                    } else if let Some(row) = focused
+                        .ancestor(gtk::ListBoxRow::static_type())
+                        .and_downcast::<gtk::ListBoxRow>()
+                    {
                         let row_widget = row.upcast_ref::<gtk::Widget>();
-                        if row_widget.is_ancestor(self.pinned_tags.widget().upcast_ref::<gtk::Widget>()) {
-                            if let Some(next) = self.pinned_tags.widget().row_at_index(row.index() + 1) {
+                        if row_widget
+                            .is_ancestor(self.pinned_tags.widget().upcast_ref::<gtk::Widget>())
+                        {
+                            if let Some(next) =
+                                self.pinned_tags.widget().row_at_index(row.index() + 1)
+                            {
                                 next.grab_focus();
-                            } else if let Some(first) = self.unpinned_tags.widget().row_at_index(0) {
+                            } else if let Some(first) = self.unpinned_tags.widget().row_at_index(0)
+                            {
                                 first.grab_focus();
                             } else if let Some(first) = self.pinned_tags.widget().row_at_index(0) {
                                 first.grab_focus();
                             }
-                        } else if row_widget.is_ancestor(self.unpinned_tags.widget().upcast_ref::<gtk::Widget>()) {
-                            if let Some(next) = self.unpinned_tags.widget().row_at_index(row.index() + 1) {
+                        } else if row_widget
+                            .is_ancestor(self.unpinned_tags.widget().upcast_ref::<gtk::Widget>())
+                        {
+                            if let Some(next) =
+                                self.unpinned_tags.widget().row_at_index(row.index() + 1)
+                            {
                                 next.grab_focus();
-                            } else if let Some(first) = self.pinned_tags.widget().row_at_index(0).or_else(|| self.unpinned_tags.widget().row_at_index(0)) {
+                            } else if let Some(first) = self
+                                .pinned_tags
+                                .widget()
+                                .row_at_index(0)
+                                .or_else(|| self.unpinned_tags.widget().row_at_index(0))
+                            {
                                 first.grab_focus();
                             }
-                        } else if row_widget.is_ancestor(self.bookmarks.widget().upcast_ref::<gtk::Widget>()) {
-                            if let Some(next) = self.bookmarks.widget().row_at_index(row.index() + 1) {
+                        } else if row_widget
+                            .is_ancestor(self.bookmarks.widget().upcast_ref::<gtk::Widget>())
+                        {
+                            if let Some(next) =
+                                self.bookmarks.widget().row_at_index(row.index() + 1)
+                            {
                                 next.grab_focus();
                             } else if let Some(first) = self.bookmarks.widget().row_at_index(0) {
                                 first.grab_focus();
@@ -880,56 +963,82 @@ impl SimpleComponent for App {
 
             AppMsg::NavigatePrev => {
                 if let Some(focused) = gtk::prelude::RootExt::focus(&self.window) {
-                    if let Some(row) = focused.ancestor(gtk::ListBoxRow::static_type()).and_downcast::<gtk::ListBoxRow>() {
+                    if let Some(row) = focused
+                        .ancestor(gtk::ListBoxRow::static_type())
+                        .and_downcast::<gtk::ListBoxRow>()
+                    {
                         let row_widget = row.upcast_ref::<gtk::Widget>();
-                        if row_widget.is_ancestor(self.pinned_tags.widget().upcast_ref::<gtk::Widget>()) {
+                        if row_widget
+                            .is_ancestor(self.pinned_tags.widget().upcast_ref::<gtk::Widget>())
+                        {
                             if row.index() > 0 {
-                                if let Some(prev) = self.pinned_tags.widget().row_at_index(row.index() - 1) {
+                                if let Some(prev) =
+                                    self.pinned_tags.widget().row_at_index(row.index() - 1)
+                                {
                                     prev.grab_focus();
                                 }
                             } else {
                                 // at first pinned tag, wrap to last unpinned or last pinned
                                 let last_unpinned_idx = self.unpinned_tags.guard().len() as i32 - 1;
                                 if last_unpinned_idx >= 0 {
-                                    if let Some(last) = self.unpinned_tags.widget().row_at_index(last_unpinned_idx) {
+                                    if let Some(last) =
+                                        self.unpinned_tags.widget().row_at_index(last_unpinned_idx)
+                                    {
                                         last.grab_focus();
                                     }
                                 } else {
                                     let last_pinned_idx = self.pinned_tags.guard().len() as i32 - 1;
-                                    if let Some(last) = self.pinned_tags.widget().row_at_index(last_pinned_idx) {
+                                    if let Some(last) =
+                                        self.pinned_tags.widget().row_at_index(last_pinned_idx)
+                                    {
                                         last.grab_focus();
                                     }
                                 }
                             }
-                        } else if row_widget.is_ancestor(self.unpinned_tags.widget().upcast_ref::<gtk::Widget>()) {
+                        } else if row_widget
+                            .is_ancestor(self.unpinned_tags.widget().upcast_ref::<gtk::Widget>())
+                        {
                             if row.index() > 0 {
-                                if let Some(prev) = self.unpinned_tags.widget().row_at_index(row.index() - 1) {
+                                if let Some(prev) =
+                                    self.unpinned_tags.widget().row_at_index(row.index() - 1)
+                                {
                                     prev.grab_focus();
                                 }
                             } else {
                                 // at first unpinned tag, go to last pinned tag
                                 let last_pinned_idx = self.pinned_tags.guard().len() as i32 - 1;
                                 if last_pinned_idx >= 0 {
-                                    if let Some(last) = self.pinned_tags.widget().row_at_index(last_pinned_idx) {
+                                    if let Some(last) =
+                                        self.pinned_tags.widget().row_at_index(last_pinned_idx)
+                                    {
                                         last.grab_focus();
                                     }
                                 } else {
-                                    let last_unpinned_idx = self.unpinned_tags.guard().len() as i32 - 1;
-                                    if let Some(last) = self.unpinned_tags.widget().row_at_index(last_unpinned_idx) {
+                                    let last_unpinned_idx =
+                                        self.unpinned_tags.guard().len() as i32 - 1;
+                                    if let Some(last) =
+                                        self.unpinned_tags.widget().row_at_index(last_unpinned_idx)
+                                    {
                                         last.grab_focus();
                                     }
                                 }
                             }
-                        } else if row_widget.is_ancestor(self.bookmarks.widget().upcast_ref::<gtk::Widget>()) {
+                        } else if row_widget
+                            .is_ancestor(self.bookmarks.widget().upcast_ref::<gtk::Widget>())
+                        {
                             if row.index() > 0 {
-                                if let Some(prev) = self.bookmarks.widget().row_at_index(row.index() - 1) {
+                                if let Some(prev) =
+                                    self.bookmarks.widget().row_at_index(row.index() - 1)
+                                {
                                     prev.grab_focus();
                                 }
                             } else {
                                 // at first bookmark, wrap to last
                                 let last_idx = self.bookmarks.guard().len() as i32 - 1;
                                 if last_idx >= 0 {
-                                    if let Some(last) = self.bookmarks.widget().row_at_index(last_idx) {
+                                    if let Some(last) =
+                                        self.bookmarks.widget().row_at_index(last_idx)
+                                    {
                                         last.grab_focus();
                                     }
                                 }
@@ -942,12 +1051,13 @@ impl SimpleComponent for App {
             AppMsg::OpenSettings => {
                 // Create settings dialog if not exists
                 if self.settings_dialog.is_none() {
-                    let dialog = SettingsDialog::builder()
-                        .launch(())
-                        .forward(_sender.input_sender(), |output| match output {
+                    let dialog = SettingsDialog::builder().launch(()).forward(
+                        _sender.input_sender(),
+                        |output| match output {
                             SettingsOutput::RefreshBookmarks => AppMsg::RefreshBookmarks,
                             SettingsOutput::ShowToast(msg) => AppMsg::ShowToast(msg),
-                        });
+                        },
+                    );
                     self.settings_dialog = Some(dialog);
                 }
 
@@ -962,21 +1072,20 @@ impl SimpleComponent for App {
                 self.sort_field = self.sort_field.next(has_query);
 
                 // Update field button label
-                self.sort_field_button.set_label(self.sort_field.display_name());
+                self.sort_field_button
+                    .set_label(self.sort_field.display_name());
 
                 // Update direction button icon based on field type
-                self.sort_direction_button.set_label(
-                    self.sort_direction.icon(self.sort_field.is_text())
-                );
+                self.sort_direction_button
+                    .set_label(self.sort_direction.icon(self.sort_field.is_text()));
 
                 _sender.input(AppMsg::RefreshBookmarks);
             }
 
             AppMsg::CycleSortDirection => {
                 self.sort_direction = self.sort_direction.toggle();
-                self.sort_direction_button.set_label(
-                    self.sort_direction.icon(self.sort_field.is_text())
-                );
+                self.sort_direction_button
+                    .set_label(self.sort_direction.icon(self.sort_field.is_text()));
 
                 _sender.input(AppMsg::RefreshBookmarks);
             }
