@@ -48,3 +48,98 @@ pub struct BookmarkWithTags {
     pub tags: Vec<Tag>,
     pub favicon_data: Option<Vec<u8>>,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SortField {
+    Relevance, // Only available when searching
+    Created,
+    Modified,
+    Title,
+    Url,
+}
+
+impl SortField {
+    pub fn column_name(&self) -> &'static str {
+        match self {
+            Self::Relevance => "rank",
+            Self::Created => "created",
+            Self::Modified => "changed",
+            Self::Title => "title",
+            Self::Url => "url",
+        }
+    }
+
+    pub fn is_text(&self) -> bool {
+        matches!(self, Self::Title | Self::Url)
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Relevance => "Relevance",
+            Self::Created => "Created",
+            Self::Modified => "Modified",
+            Self::Title => "Title",
+            Self::Url => "URL",
+        }
+    }
+
+    pub fn next(&self, has_query: bool) -> Self {
+        match self {
+            Self::Relevance => Self::Created,
+            Self::Created => Self::Modified,
+            Self::Modified => Self::Title,
+            Self::Title => Self::Url,
+            Self::Url => {
+                if has_query {
+                    Self::Relevance
+                } else {
+                    Self::Created
+                }
+            }
+        }
+    }
+
+    pub fn initial(has_query: bool) -> Self {
+        if has_query {
+            Self::Relevance
+        } else {
+            Self::Created
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SortDirection {
+    Ascending,
+    Descending,
+}
+
+impl SortDirection {
+    pub fn toggle(&self) -> Self {
+        match self {
+            Self::Ascending => Self::Descending,
+            Self::Descending => Self::Ascending,
+        }
+    }
+
+    pub fn icon(&self, is_text: bool) -> &'static str {
+        if is_text {
+            match self {
+                Self::Ascending => "A→Z",
+                Self::Descending => "Z→A",
+            }
+        } else {
+            match self {
+                Self::Ascending => "↑",
+                Self::Descending => "↓",
+            }
+        }
+    }
+
+    pub fn sql_keyword(&self) -> &'static str {
+        match self {
+            Self::Ascending => "ASC",
+            Self::Descending => "DESC",
+        }
+    }
+}

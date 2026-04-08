@@ -2,6 +2,7 @@ use crate::components::{
     BookmarkEditDialog, BookmarkEditInit, BookmarkEditOutput, BookmarkRow, BookmarkRowOutput,
     SettingsDialog, SettingsOutput, TagRow, TagRowOutput,
 };
+use crate::db::models::{SortDirection, SortField};
 use crate::db::Database;
 use adw::prelude::*;
 use relm4::factory::FactoryVecDeque;
@@ -25,6 +26,12 @@ pub struct App {
     tag_search_entry: gtk::SearchEntry,
     bookmark_search_entry: gtk::SearchEntry,
     shortcut_label: adw::ShortcutLabel,
+
+    // Sort state
+    sort_field: SortField,
+    sort_direction: SortDirection,
+    sort_field_button: gtk::Button,
+    sort_direction_button: gtk::Button,
 }
 
 #[derive(Debug)]
@@ -63,6 +70,10 @@ pub enum AppMsg {
     NavigateNext,
     NavigatePrev,
     NavigateTab,
+
+    // Sort messages
+    CycleSortField,
+    CycleSortDirection,
 }
 
 #[relm4::component(pub)]
@@ -187,13 +198,41 @@ impl SimpleComponent for App {
                                 },
 
                                 #[wrap(Some)]
-                                #[name = "bookmark_search_entry"]
-                                set_title_widget = &gtk::SearchEntry {
-                                    set_placeholder_text: Some("search bookmarks (^K)"),
+                                set_title_widget = &gtk::Box {
+                                    set_orientation: gtk::Orientation::Horizontal,
+                                    set_spacing: 0,
                                     set_hexpand: false,
-                                    set_width_request: 400,
-                                    connect_search_changed[sender] => move |entry| {
-                                        sender.input(AppMsg::BookmarkSearch(entry.text().to_string()));
+
+                                    #[name = "bookmark_search_entry"]
+                                    gtk::SearchEntry {
+                                        set_placeholder_text: Some("search bookmarks (^K)"),
+                                        set_hexpand: false,
+                                        set_width_request: 400,
+                                        connect_search_changed[sender] => move |entry| {
+                                            sender.input(AppMsg::BookmarkSearch(entry.text().to_string()));
+                                        }
+                                    },
+
+                                    gtk::Box {
+                                        add_css_class: "linked",
+                                        set_margin_start: 6,
+
+                                        #[name = "sort_field_button"]
+                                        gtk::Button {
+                                            set_label: "Created",
+                                            connect_clicked[sender] => move |_| {
+                                                sender.input(AppMsg::CycleSortField);
+                                            }
+                                        },
+
+                                        #[name = "sort_direction_button"]
+                                        gtk::Button {
+                                            set_label: "↓",
+                                            set_width_request: 40,
+                                            connect_clicked[sender] => move |_| {
+                                                sender.input(AppMsg::CycleSortDirection);
+                                            }
+                                        }
                                     }
                                 }
                             },
@@ -279,6 +318,11 @@ impl SimpleComponent for App {
             tag_search_entry: gtk::SearchEntry::new(),
             bookmark_search_entry: gtk::SearchEntry::new(),
             shortcut_label: adw::ShortcutLabel::new(""),
+
+            sort_field: SortField::Created,
+            sort_direction: SortDirection::Descending,
+            sort_field_button: gtk::Button::new(),
+            sort_direction_button: gtk::Button::new(),
         };
 
         let bookmarks_list = model.bookmarks.widget();
@@ -290,6 +334,8 @@ impl SimpleComponent for App {
         model.tag_search_entry = widgets.tag_search_entry.clone();
         model.bookmark_search_entry = widgets.bookmark_search_entry.clone();
         model.shortcut_label = widgets.shortcut_label.clone();
+        model.sort_field_button = widgets.sort_field_button.clone();
+        model.sort_direction_button = widgets.sort_direction_button.clone();
 
         let key_controller = gtk::EventControllerKey::new();
         let sender_clone = sender.clone();
@@ -333,6 +379,13 @@ impl SimpleComponent for App {
         match msg {
             AppMsg::BookmarkSearch(query) => {
                 self.bookmark_search = query;
+
+                // If query changed state and current sort is not available, reset
+                if self.bookmark_search.is_empty() && self.sort_field == SortField::Relevance {
+                    self.sort_field = SortField::Created;
+                    self.sort_field_button.set_label(self.sort_field.display_name());
+                }
+
                 _sender.input(AppMsg::RefreshBookmarks);
             }
 
@@ -419,14 +472,14 @@ impl SimpleComponent for App {
 
             AppMsg::RefreshBookmarks => {
                 let results = if self.bookmark_search.is_empty() && self.pinned_tag_ids.is_empty() {
-                    self.db.get_all_bookmarks()
+                    self.db.get_all_bookmarks_with_sort(self.sort_field, self.sort_direction)
                 } else {
                     let query = if self.bookmark_search.is_empty() {
                         None
                     } else {
                         Some(self.bookmark_search.as_str())
                     };
-                    self.db.search_bookmarks(query, &self.pinned_tag_ids)
+                    self.db.search_bookmarks_with_sort(query, &self.pinned_tag_ids, self.sort_field, self.sort_direction)
                 };
 
                 match results {
@@ -902,6 +955,30 @@ impl SimpleComponent for App {
                 if let Some(ref dialog) = self.settings_dialog {
                     dialog.widget().present(Some(&self.window));
                 }
+            }
+
+            AppMsg::CycleSortField => {
+                let has_query = !self.bookmark_search.is_empty();
+                self.sort_field = self.sort_field.next(has_query);
+
+                // Update field button label
+                self.sort_field_button.set_label(self.sort_field.display_name());
+
+                // Update direction button icon based on field type
+                self.sort_direction_button.set_label(
+                    self.sort_direction.icon(self.sort_field.is_text())
+                );
+
+                _sender.input(AppMsg::RefreshBookmarks);
+            }
+
+            AppMsg::CycleSortDirection => {
+                self.sort_direction = self.sort_direction.toggle();
+                self.sort_direction_button.set_label(
+                    self.sort_direction.icon(self.sort_field.is_text())
+                );
+
+                _sender.input(AppMsg::RefreshBookmarks);
             }
         }
     }

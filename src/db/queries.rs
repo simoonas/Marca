@@ -1,3 +1,4 @@
+use crate::db::models::{SortDirection, SortField};
 use crate::db::{Bookmark, BookmarkWithTags, Tag};
 use rusqlite::{params, Connection, OptionalExtension, Result};
 
@@ -77,13 +78,26 @@ fn load_bookmark_with_tags(
     })
 }
 
-pub fn get_all_bookmarks(conn: &Connection) -> Result<Vec<BookmarkWithTags>> {
-    let mut stmt = conn.prepare(
+pub fn get_all_bookmarks(
+    conn: &Connection,
+    sort_field: SortField,
+    sort_direction: SortDirection,
+) -> Result<Vec<BookmarkWithTags>> {
+    let order_clause = format!(
+        "ORDER BY b.{} {}",
+        sort_field.column_name(),
+        sort_direction.sql_keyword()
+    );
+
+    let query = format!(
         "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
          FROM bookmarks b
          LEFT JOIN favicons f ON b.favicon_hash = f.hash
-         ORDER BY b.created DESC"
-    )?;
+         {}",
+        order_clause
+    );
+
+    let mut stmt = conn.prepare(&query)?;
 
     let bookmark_iter = stmt.query_map([], map_bookmark_with_favicon)?;
 
@@ -131,9 +145,11 @@ pub fn search_bookmarks(
     conn: &Connection,
     query: Option<&str>,
     tag_ids: &[i64],
+    sort_field: SortField,
+    sort_direction: SortDirection,
 ) -> Result<Vec<BookmarkWithTags>> {
     if query.is_none() && tag_ids.is_empty() {
-        return get_all_bookmarks(conn);
+        return get_all_bookmarks(conn, sort_field, sort_direction);
     }
 
     let mut results = Vec::new();
@@ -142,15 +158,29 @@ pub fn search_bookmarks(
         // Enclose query in quotes for exact substring match across multiple words, escaping internal quotes
         let fts_query = format!("\"{}\"", search_text.replace("\"", "\"\""));
 
+        // Determine order clause based on sort field
+        let order_clause = if sort_field == SortField::Relevance {
+            "ORDER BY rank".to_string()
+        } else {
+            format!(
+                "ORDER BY b.{} {}",
+                sort_field.column_name(),
+                sort_direction.sql_keyword()
+            )
+        };
+
         if tag_ids.is_empty() {
-            let mut stmt = conn.prepare(
+            let query_str = format!(
                 "SELECT DISTINCT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
                  FROM bookmarks b
                  JOIN bookmarks_fts fts ON b.id = fts.rowid
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
                  WHERE bookmarks_fts MATCH ?1
-                 ORDER BY rank",
-            )?;
+                 {}",
+                order_clause
+            );
+
+            let mut stmt = conn.prepare(&query_str)?;
 
             let bookmark_iter = stmt.query_map(params![fts_query], map_bookmark_with_favicon)?;
 
@@ -160,7 +190,7 @@ pub fn search_bookmarks(
             }
         } else {
             let tag_ids_json = serde_json::to_string(tag_ids).unwrap();
-            let mut stmt = conn.prepare(
+            let query_str = format!(
                 "SELECT DISTINCT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
                  FROM bookmarks b
                  JOIN bookmarks_fts fts ON b.id = fts.rowid
@@ -169,8 +199,11 @@ pub fn search_bookmarks(
                  WHERE bookmarks_fts MATCH ?1 AND bt.tag_id IN (SELECT value FROM json_each(?2))
                  GROUP BY b.id
                  HAVING COUNT(DISTINCT bt.tag_id) = ?3
-                 ORDER BY rank",
-            )?;
+                 {}",
+                order_clause
+            );
+
+            let mut stmt = conn.prepare(&query_str)?;
 
             let bookmark_iter = stmt.query_map(
                 params![fts_query, tag_ids_json, tag_ids.len()],
@@ -184,7 +217,13 @@ pub fn search_bookmarks(
         }
     } else {
         let tag_ids_json = serde_json::to_string(tag_ids).unwrap();
-        let mut stmt = conn.prepare(
+        let order_clause = format!(
+            "ORDER BY b.{} {}",
+            sort_field.column_name(),
+            sort_direction.sql_keyword()
+        );
+
+        let query_str = format!(
             "SELECT DISTINCT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
              FROM bookmarks b
              JOIN bookmark_tags bt ON b.id = bt.bookmark_id
@@ -192,8 +231,11 @@ pub fn search_bookmarks(
              WHERE bt.tag_id IN (SELECT value FROM json_each(?1))
              GROUP BY b.id
              HAVING COUNT(DISTINCT bt.tag_id) = ?2
-             ORDER BY b.created DESC",
-        )?;
+             {}",
+            order_clause
+        );
+
+        let mut stmt = conn.prepare(&query_str)?;
 
         let bookmark_iter = stmt.query_map(
             params![tag_ids_json, tag_ids.len()],
