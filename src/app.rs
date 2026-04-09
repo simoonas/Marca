@@ -140,7 +140,7 @@ impl SimpleComponent for App {
                                         #[name = "tag_filter_button"]
                                         gtk::Button {
                                             set_label: "all",
-                                            set_width_request: 34,
+                                            set_width_request: 32,
                                             add_css_class: "compact",
                                             set_tooltip_text: Some("Bookmarks matching all selected tags"),
                                             connect_clicked[sender] => move |_| {
@@ -234,7 +234,7 @@ impl SimpleComponent for App {
 
                                     #[name = "bookmark_search_entry"]
                                     gtk::SearchEntry {
-                                        set_placeholder_text: Some("search bookmarks (^K)"),
+                                        set_placeholder_text: Some("search bookmarks"),
                                         set_hexpand: false,
                                         set_width_request: 400,
                                         connect_search_changed[sender] => move |entry| {
@@ -421,7 +421,7 @@ impl SimpleComponent for App {
         css_provider.load_from_data(
             ".favicon-icon { border-radius: 8px; min-width: 32px; min-height: 32px; }
              button.compact { padding: 0; margin: 0; min-height: 24px; font-size: 0.85em; }
-             .untagged-tag { background-color: cyan; background-color: rgba(0, 255, 255, 0.3); }
+             .untagged-tag { background-color: cyan; background-color: rgba(29, 108, 145, 0.9); }
              .untagged-tag-label { font-style: italic; }",
         );
         gtk::style_context_add_provider_for_display(
@@ -441,8 +441,14 @@ impl SimpleComponent for App {
             AppMsg::BookmarkSearch(query) => {
                 self.bookmark_search = query;
 
-                // If query changed state and current sort is not available, reset
-                if self.bookmark_search.is_empty() && self.sort_field == SortField::Relevance {
+                // Auto-switch sort field based on query state
+                if !self.bookmark_search.is_empty() && self.sort_field != SortField::Relevance {
+                    // Starting search: switch to Relevance
+                    self.sort_field = SortField::Relevance;
+                    self.sort_field_button
+                        .set_label(self.sort_field.display_name());
+                } else if self.bookmark_search.is_empty() && self.sort_field == SortField::Relevance {
+                    // Ending search: switch to Created
                     self.sort_field = SortField::Created;
                     self.sort_field_button
                         .set_label(self.sort_field.display_name());
