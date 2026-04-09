@@ -1,4 +1,4 @@
-use crate::db::models::Tag;
+use crate::db::models::{Tag, UNTAGGED_TAG_ID};
 use gtk::prelude::*;
 use relm4::factory::{DynamicIndex, FactoryComponent};
 use relm4::prelude::*;
@@ -33,7 +33,9 @@ impl FactoryComponent for TagRow {
 
             #[watch]
             #[block_signal(activate_handler)]
-            set_css_classes: if self.is_pinned {
+            set_css_classes: if self.tag.id == Some(UNTAGGED_TAG_ID) {
+                &["untagged-tag"]
+            } else if self.is_pinned {
                 &["accent-bg-color"]
             } else {
                 &[]
@@ -53,6 +55,12 @@ impl FactoryComponent for TagRow {
                     set_label: &self.tag.title,
                     set_halign: gtk::Align::Start,
                     set_hexpand: true,
+                    #[watch]
+                    set_css_classes: if self.tag.id == Some(UNTAGGED_TAG_ID) {
+                        &["untagged-tag-label"]
+                    } else {
+                        &[]
+                    },
                 }
             }
         }

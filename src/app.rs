@@ -3,7 +3,7 @@ use crate::components::{
     SettingsDialog, SettingsOutput, TagRow, TagRowOutput,
 };
 use crate::db::Database;
-use crate::db::models::{SortDirection, SortField, TagFilterMode};
+use crate::db::models::{SortDirection, SortField, TagFilterMode, UNTAGGED_TAG_ID};
 use adw::prelude::*;
 use relm4::factory::FactoryVecDeque;
 use relm4::prelude::*;
@@ -135,12 +135,14 @@ impl SimpleComponent for App {
 
                                     gtk::Box {
                                         add_css_class: "linked",
-                                        set_margin_start: 6,
+                                        set_margin_start: 3,
 
                                         #[name = "tag_filter_button"]
                                         gtk::Button {
-                                            set_label: "All",
-                                            set_tooltip_text: Some("Show bookmarks with all of the tags"),
+                                            set_label: "all",
+                                            set_width_request: 34,
+                                            add_css_class: "compact",
+                                            set_tooltip_text: Some("Bookmarks matching all selected tags"),
                                             connect_clicked[sender] => move |_| {
                                                 sender.input(AppMsg::CycleTagFilterMode);
                                             }
@@ -414,11 +416,13 @@ impl SimpleComponent for App {
 
         model.bookmark_search_entry.grab_focus();
 
-        // Load custom CSS for favicon styling and compact buttons
+        // Load custom CSS for favicon styling, compact buttons, and untagged tag styling
         let css_provider = gtk::CssProvider::new();
         css_provider.load_from_data(
             ".favicon-icon { border-radius: 8px; min-width: 32px; min-height: 32px; }
-             button.compact { padding: 0; margin: 0; min-height: 24px; font-size: 0.85em; }",
+             button.compact { padding: 0; margin: 0; min-height: 24px; font-size: 0.85em; }
+             .untagged-tag { background-color: cyan; background-color: rgba(0, 255, 255, 0.3); }
+             .untagged-tag-label { font-style: italic; }",
         );
         gtk::style_context_add_provider_for_display(
             &adw::prelude::WidgetExt::display(&root),
@@ -484,6 +488,14 @@ impl SimpleComponent for App {
                     // Pin
                     self.pinned_tag_ids.push(tag_id);
                 }
+
+                // Update filter button sensitivity: disable if untagged is pinned
+                let has_untagged = self.pinned_tag_ids.contains(&UNTAGGED_TAG_ID);
+                self.tag_filter_button.set_sensitive(!has_untagged);
+                if has_untagged && self.tag_filter_mode == TagFilterMode::All {
+                    _sender.input(AppMsg::CycleTagFilterMode);
+                }
+
                 _sender.input(AppMsg::RefreshTags);
                 _sender.input(AppMsg::RefreshBookmarks);
 
@@ -501,6 +513,15 @@ impl SimpleComponent for App {
             AppMsg::RefreshTags => {
                 match self.db.get_all_tags() {
                     Ok(mut tags) => {
+                        // Add synthetic "Untagged" tag for bookmarks without tags
+                        let untagged_tag = crate::db::Tag {
+                            id: Some(UNTAGGED_TAG_ID),
+                            title: "Untagged".to_string(),
+                        };
+                        tags.push(untagged_tag);
+                        // Sort tags alphabetically (Untagged will be last due to 'U')
+                        tags.sort_by(|a, b| a.title.cmp(&b.title));
+
                         // Filter by search query if active
                         if !self.tag_search.is_empty() {
                             let query_lower = self.tag_search.to_lowercase();
@@ -1124,7 +1145,8 @@ impl SimpleComponent for App {
 
             AppMsg::CycleTagFilterMode => {
                 self.tag_filter_mode = self.tag_filter_mode.toggle();
-                self.tag_filter_button.set_label(self.tag_filter_mode.display_name());
+                self.tag_filter_button
+                    .set_label(self.tag_filter_mode.display_name());
                 self.tag_filter_button
                     .set_tooltip_text(Some(self.tag_filter_mode.tooltip()));
 

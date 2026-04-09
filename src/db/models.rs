@@ -1,3 +1,6 @@
+/// Virtual tag ID for "Untagged" bookmarks (bookmarks with no tags)
+pub const UNTAGGED_TAG_ID: i64 = -1;
+
 #[derive(Debug, Clone)]
 pub struct Bookmark {
     pub id: Option<i64>,
@@ -160,15 +163,15 @@ impl TagFilterMode {
 
     pub fn display_name(&self) -> &'static str {
         match self {
-            Self::All => "All",
-            Self::Any => "Any",
+            Self::All => "all",
+            Self::Any => "any",
         }
     }
 
     pub fn tooltip(&self) -> &'static str {
         match self {
-            Self::All => "Show bookmarks with all of the tags",
-            Self::Any => "Show bookmarks with any of the tags",
+            Self::All => "Bookmarks matching all selected tags",
+            Self::Any => "Bookmarks matching any selected tags",
         }
     }
 }

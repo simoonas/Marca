@@ -4,7 +4,9 @@ pub mod queries;
 mod schema;
 
 pub use import::ImportResult;
-pub use models::{Bookmark, BookmarkWithTags, SortDirection, SortField, Tag, TagFilterMode};
+pub use models::{
+    Bookmark, BookmarkWithTags, SortDirection, SortField, Tag, TagFilterMode, UNTAGGED_TAG_ID,
+};
 
 use rusqlite::{Connection, Result};
 use std::path::PathBuf;
