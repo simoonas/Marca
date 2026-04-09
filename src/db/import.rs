@@ -6,6 +6,7 @@ pub struct ImportResult {
     pub imported: usize,
     pub skipped: usize,
     pub errors: Vec<String>,
+    pub imported_urls: Vec<String>,
 }
 
 /// Import bookmarks into the database
@@ -22,6 +23,7 @@ pub fn import_bookmarks(
         imported: 0,
         skipped: 0,
         errors: Vec::new(),
+        imported_urls: Vec::new(),
     };
 
     for (bookmark, tag_titles) in bookmarks {
@@ -72,6 +74,7 @@ pub fn import_bookmarks(
 
                 if !tag_error {
                     result.imported += 1;
+                    result.imported_urls.push(bookmark.url);
                 }
             }
             Err(e) => {

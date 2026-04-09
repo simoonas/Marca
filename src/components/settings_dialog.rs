@@ -200,6 +200,36 @@ impl SimpleComponent for SettingsDialog {
                 
                 // Show success toast
                 let _ = sender.output(SettingsOutput::ShowToast(msg));
+
+                // Fetch favicons for imported bookmarks asynchronously
+                let imported_urls = result.imported_urls.clone();
+                if !imported_urls.is_empty() {
+                    tokio::spawn(async move {
+                        for url in imported_urls {
+                            // Run favicon fetch in blocking thread pool
+                            let result = tokio::task::spawn_blocking({
+                                let url = url.clone();
+                                move || crate::fetch_metadata::fetch_favicon_sync(&url)
+                            })
+                            .await
+                            .ok()
+                            .flatten();
+
+                            if let Some((hash, favicon_data)) = result {
+                                // Create new DB connection for async task
+                                if let Ok(db) = crate::db::Database::new() {
+                                    // Insert favicon if new (INSERT OR IGNORE handles hash collisions)
+                                    let _ = db.insert_favicon_if_new(hash, &favicon_data);
+                                    // Update bookmarks with this URL to use the favicon hash
+                                    let _ = db.conn().execute(
+                                        "UPDATE bookmarks SET favicon_hash = ?1 WHERE url = ?2",
+                                        (hash, &url),
+                                    );
+                                }
+                            }
+                        }
+                    });
+                }
             }
 
             SettingsMsg::ImportComplete(Err(error)) => {
