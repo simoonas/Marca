@@ -3,7 +3,7 @@ use crate::components::{
     SettingsDialog, SettingsOutput, TagRow, TagRowOutput,
 };
 use crate::db::Database;
-use crate::db::models::{SortDirection, SortField};
+use crate::db::models::{SortDirection, SortField, TagFilterMode};
 use adw::prelude::*;
 use relm4::factory::FactoryVecDeque;
 use relm4::prelude::*;
@@ -32,6 +32,10 @@ pub struct App {
     sort_direction: SortDirection,
     sort_field_button: gtk::Button,
     sort_direction_button: gtk::Button,
+
+    // Tag filter mode (AND/OR)
+    tag_filter_mode: TagFilterMode,
+    tag_filter_button: gtk::Button,
 }
 
 #[derive(Debug)]
@@ -74,6 +78,9 @@ pub enum AppMsg {
     // Sort messages
     CycleSortField,
     CycleSortDirection,
+
+    // Tag filter mode message
+    CycleTagFilterMode,
 }
 
 #[relm4::component(pub)]
@@ -112,12 +119,32 @@ impl SimpleComponent for App {
                         set_child = &adw::ToolbarView {
                             add_top_bar = &adw::HeaderBar {
                                 #[wrap(Some)]
-                                #[name = "tag_search_entry"]
-                                set_title_widget = &gtk::SearchEntry {
-                                    set_placeholder_text: Some("Search tags..."),
+                                set_title_widget = &gtk::Box {
+                                    set_orientation: gtk::Orientation::Horizontal,
+                                    set_spacing: 0,
                                     set_hexpand: true,
-                                    connect_search_changed[sender] => move |entry| {
-                                        sender.input(AppMsg::TagSearch(entry.text().to_string()));
+
+                                    #[name = "tag_search_entry"]
+                                    gtk::SearchEntry {
+                                        set_placeholder_text: Some("Search tags..."),
+                                        set_hexpand: true,
+                                        connect_search_changed[sender] => move |entry| {
+                                            sender.input(AppMsg::TagSearch(entry.text().to_string()));
+                                        }
+                                    },
+
+                                    gtk::Box {
+                                        add_css_class: "linked",
+                                        set_margin_start: 6,
+
+                                        #[name = "tag_filter_button"]
+                                        gtk::Button {
+                                            set_label: "All",
+                                            set_tooltip_text: Some("Show bookmarks with all of the tags"),
+                                            connect_clicked[sender] => move |_| {
+                                                sender.input(AppMsg::CycleTagFilterMode);
+                                            }
+                                        }
                                     }
                                 }
                             },
@@ -327,6 +354,9 @@ impl SimpleComponent for App {
             sort_direction: SortDirection::Descending,
             sort_field_button: gtk::Button::new(),
             sort_direction_button: gtk::Button::new(),
+
+            tag_filter_mode: TagFilterMode::All,
+            tag_filter_button: gtk::Button::new(),
         };
 
         let bookmarks_list = model.bookmarks.widget();
@@ -340,6 +370,7 @@ impl SimpleComponent for App {
         model.shortcut_label = widgets.shortcut_label.clone();
         model.sort_field_button = widgets.sort_field_button.clone();
         model.sort_direction_button = widgets.sort_direction_button.clone();
+        model.tag_filter_button = widgets.tag_filter_button.clone();
 
         let key_controller = gtk::EventControllerKey::new();
         let sender_clone = sender.clone();
@@ -523,6 +554,7 @@ impl SimpleComponent for App {
                         &self.pinned_tag_ids,
                         self.sort_field,
                         self.sort_direction,
+                        self.tag_filter_mode,
                     )
                 };
 
@@ -1086,6 +1118,15 @@ impl SimpleComponent for App {
                 self.sort_direction = self.sort_direction.toggle();
                 self.sort_direction_button
                     .set_label(self.sort_direction.icon(self.sort_field.is_text()));
+
+                _sender.input(AppMsg::RefreshBookmarks);
+            }
+
+            AppMsg::CycleTagFilterMode => {
+                self.tag_filter_mode = self.tag_filter_mode.toggle();
+                self.tag_filter_button.set_label(self.tag_filter_mode.display_name());
+                self.tag_filter_button
+                    .set_tooltip_text(Some(self.tag_filter_mode.tooltip()));
 
                 _sender.input(AppMsg::RefreshBookmarks);
             }

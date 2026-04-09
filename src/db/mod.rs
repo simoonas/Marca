@@ -4,7 +4,7 @@ pub mod queries;
 mod schema;
 
 pub use import::ImportResult;
-pub use models::{Bookmark, BookmarkWithTags, SortDirection, SortField, Tag};
+pub use models::{Bookmark, BookmarkWithTags, SortDirection, SortField, Tag, TagFilterMode};
 
 use rusqlite::{Connection, Result};
 use std::path::PathBuf;
@@ -114,6 +114,7 @@ impl Database {
             tag_ids,
             SortField::Created,
             SortDirection::Descending,
+            TagFilterMode::All,
         )
     }
 
@@ -123,8 +124,16 @@ impl Database {
         tag_ids: &[i64],
         sort_field: SortField,
         sort_direction: SortDirection,
+        tag_filter_mode: TagFilterMode,
     ) -> Result<Vec<BookmarkWithTags>> {
-        queries::search_bookmarks(&self.conn, query, tag_ids, sort_field, sort_direction)
+        queries::search_bookmarks(
+            &self.conn,
+            query,
+            tag_ids,
+            sort_field,
+            sort_direction,
+            tag_filter_mode,
+        )
     }
 
     pub fn insert_bookmark(&self, title: &str, url: &str, note: Option<&str>) -> Result<i64> {

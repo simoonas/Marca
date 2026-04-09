@@ -1,4 +1,4 @@
-use crate::db::models::{SortDirection, SortField};
+use crate::db::models::{SortDirection, SortField, TagFilterMode};
 use crate::db::{Bookmark, BookmarkWithTags, Tag};
 use rusqlite::{params, Connection, OptionalExtension, Result};
 
@@ -147,6 +147,7 @@ pub fn search_bookmarks(
     tag_ids: &[i64],
     sort_field: SortField,
     sort_direction: SortDirection,
+    tag_filter_mode: TagFilterMode,
 ) -> Result<Vec<BookmarkWithTags>> {
     if query.is_none() && tag_ids.is_empty() {
         return get_all_bookmarks(conn, sort_field, sort_direction);
@@ -190,6 +191,10 @@ pub fn search_bookmarks(
             }
         } else {
             let tag_ids_json = serde_json::to_string(tag_ids).unwrap();
+            let having_clause = match tag_filter_mode {
+                TagFilterMode::All => "HAVING COUNT(DISTINCT bt.tag_id) = ?3",
+                TagFilterMode::Any => "HAVING COUNT(DISTINCT bt.tag_id) >= 1",
+            };
             let query_str = format!(
                 "SELECT DISTINCT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
                  FROM bookmarks b
@@ -198,17 +203,22 @@ pub fn search_bookmarks(
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
                  WHERE bookmarks_fts MATCH ?1 AND bt.tag_id IN (SELECT value FROM json_each(?2))
                  GROUP BY b.id
-                 HAVING COUNT(DISTINCT bt.tag_id) = ?3
+                 {}
                  {}",
+                having_clause,
                 order_clause
             );
 
             let mut stmt = conn.prepare(&query_str)?;
 
-            let bookmark_iter = stmt.query_map(
-                params![fts_query, tag_ids_json, tag_ids.len()],
-                map_bookmark_with_favicon,
-            )?;
+            let bookmark_iter = if tag_filter_mode == TagFilterMode::All {
+                stmt.query_map(
+                    params![fts_query, tag_ids_json, tag_ids.len()],
+                    map_bookmark_with_favicon,
+                )?
+            } else {
+                stmt.query_map(params![fts_query, tag_ids_json], map_bookmark_with_favicon)?
+            };
 
             for result in bookmark_iter {
                 let (bookmark, favicon_data) = result?;
@@ -223,6 +233,10 @@ pub fn search_bookmarks(
             sort_direction.sql_keyword()
         );
 
+        let having_clause = match tag_filter_mode {
+            TagFilterMode::All => "HAVING COUNT(DISTINCT bt.tag_id) = ?2",
+            TagFilterMode::Any => "HAVING COUNT(DISTINCT bt.tag_id) >= 1",
+        };
         let query_str = format!(
             "SELECT DISTINCT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
              FROM bookmarks b
@@ -230,17 +244,22 @@ pub fn search_bookmarks(
              LEFT JOIN favicons f ON b.favicon_hash = f.hash
              WHERE bt.tag_id IN (SELECT value FROM json_each(?1))
              GROUP BY b.id
-             HAVING COUNT(DISTINCT bt.tag_id) = ?2
+             {}
              {}",
+            having_clause,
             order_clause
         );
 
         let mut stmt = conn.prepare(&query_str)?;
 
-        let bookmark_iter = stmt.query_map(
-            params![tag_ids_json, tag_ids.len()],
-            map_bookmark_with_favicon,
-        )?;
+        let bookmark_iter = if tag_filter_mode == TagFilterMode::All {
+            stmt.query_map(
+                params![tag_ids_json, tag_ids.len()],
+                map_bookmark_with_favicon,
+            )?
+        } else {
+            stmt.query_map(params![tag_ids_json], map_bookmark_with_favicon)?
+        };
 
         for result in bookmark_iter {
             let (bookmark, favicon_data) = result?;

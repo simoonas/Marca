@@ -143,3 +143,32 @@ impl SortDirection {
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TagFilterMode {
+    All, // AND - show bookmarks with ALL selected tags
+    Any, // OR - show bookmarks with ANY of the selected tags
+}
+
+impl TagFilterMode {
+    pub fn toggle(&self) -> Self {
+        match self {
+            Self::All => Self::Any,
+            Self::Any => Self::All,
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::All => "All",
+            Self::Any => "Any",
+        }
+    }
+
+    pub fn tooltip(&self) -> &'static str {
+        match self {
+            Self::All => "Show bookmarks with all of the tags",
+            Self::Any => "Show bookmarks with any of the tags",
+        }
+    }
+}
