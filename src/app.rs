@@ -1,6 +1,7 @@
 use crate::components::{
     BookmarkEditDialog, BookmarkEditInit, BookmarkEditOutput, BookmarkRow, BookmarkRowOutput,
-    SettingsDialog, SettingsOutput, TagRow, TagRowOutput,
+    HotkeyAction, HotkeyDisplay, HotkeyDisplayMsg, HotkeyDisplayOutput, SettingsDialog,
+    SettingsOutput, TagRow, TagRowOutput,
 };
 use crate::db::Database;
 use crate::db::models::{SortDirection, SortField, TagFilterMode, UNTAGGED_TAG_ID};
@@ -22,10 +23,12 @@ pub struct App {
     window: adw::ApplicationWindow,
     settings_dialog: Option<Controller<SettingsDialog>>,
 
-    // Hotkey widgets
+    // Hotkey display component
+    hotkey_display: Controller<HotkeyDisplay>,
+
+    // Hotkey widgets (for focus tracking)
     tag_search_entry: gtk::SearchEntry,
     bookmark_search_entry: gtk::SearchEntry,
-    shortcut_label: adw::ShortcutLabel,
 
     // Sort state
     sort_field: SortField,
@@ -81,6 +84,9 @@ pub enum AppMsg {
 
     // Tag filter mode message
     CycleTagFilterMode,
+
+    // Hotkey action message
+    HotkeyActionTriggered(usize),
 }
 
 #[relm4::component(pub)]
@@ -123,6 +129,7 @@ impl SimpleComponent for App {
                                     set_orientation: gtk::Orientation::Horizontal,
                                     set_spacing: 0,
                                     set_hexpand: true,
+                                    add_css_class: "linked",
 
                                     #[name = "tag_search_entry"]
                                     gtk::SearchEntry {
@@ -133,21 +140,16 @@ impl SimpleComponent for App {
                                         }
                                     },
 
-                                    gtk::Box {
-                                        add_css_class: "linked",
-                                        set_margin_start: 3,
-
                                         #[name = "tag_filter_button"]
                                         gtk::Button {
                                             set_label: "all",
-                                            set_width_request: 32,
+                                            set_width_request: 30,
                                             add_css_class: "compact",
                                             set_tooltip_text: Some("Bookmarks matching all selected tags"),
                                             connect_clicked[sender] => move |_| {
                                                 sender.input(AppMsg::CycleTagFilterMode);
                                             }
                                         }
-                                    }
                                 }
                             },
 
@@ -295,9 +297,7 @@ impl SimpleComponent for App {
                         connect_clicked => AppMsg::OpenSettings,
                     },
 
-                    #[name = "shortcut_label"]
-                    pack_end = &adw::ShortcutLabel::new("<Ctrl>l") {
-                        set_disabled_text: "Search bookmarks",
+                    pack_end = model.hotkey_display.widget().upcast_ref::<gtk::Widget>() {
                     }
                 }
                 }
@@ -310,6 +310,14 @@ impl SimpleComponent for App {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        // Initialize the HotkeyDisplay component
+        let hotkey_display = HotkeyDisplay::builder().launch(()).forward(
+            sender.input_sender(),
+            |output| match output {
+                HotkeyDisplayOutput::ActionTriggered(id) => AppMsg::HotkeyActionTriggered(id),
+            },
+        );
+
         // Initialize the factory for bookmark rows
         let bookmarks = FactoryVecDeque::builder()
             .launch(gtk::ListBox::default())
@@ -348,9 +356,10 @@ impl SimpleComponent for App {
             window: root.clone(),
             settings_dialog: None,
 
+            hotkey_display,
+
             tag_search_entry: gtk::SearchEntry::new(),
             bookmark_search_entry: gtk::SearchEntry::new(),
-            shortcut_label: adw::ShortcutLabel::new(""),
 
             sort_field: SortField::Created,
             sort_direction: SortDirection::Descending,
@@ -369,7 +378,6 @@ impl SimpleComponent for App {
 
         model.tag_search_entry = widgets.tag_search_entry.clone();
         model.bookmark_search_entry = widgets.bookmark_search_entry.clone();
-        model.shortcut_label = widgets.shortcut_label.clone();
         model.sort_field_button = widgets.sort_field_button.clone();
         model.sort_direction_button = widgets.sort_direction_button.clone();
         model.tag_filter_button = widgets.tag_filter_button.clone();
@@ -422,7 +430,8 @@ impl SimpleComponent for App {
             ".favicon-icon { border-radius: 8px; min-width: 32px; min-height: 32px; }
              button.compact { padding: 0; margin: 0; min-height: 24px; font-size: 0.85em; }
              .untagged-tag { background-color: cyan; background-color: rgba(29, 108, 145, 0.9); }
-             .untagged-tag-label { font-style: italic; }",
+             .untagged-tag-label { font-style: italic; }
+             .hotkey-shortcut { font-size: 0.8em; padding: 0; margin: 0; }",
         );
         gtk::style_context_add_provider_for_display(
             &adw::prelude::WidgetExt::display(&root),
@@ -447,7 +456,8 @@ impl SimpleComponent for App {
                     self.sort_field = SortField::Relevance;
                     self.sort_field_button
                         .set_label(self.sort_field.display_name());
-                } else if self.bookmark_search.is_empty() && self.sort_field == SortField::Relevance {
+                } else if self.bookmark_search.is_empty() && self.sort_field == SortField::Relevance
+                {
                     // Ending search: switch to Created
                     self.sort_field = SortField::Created;
                     self.sort_field_button
@@ -921,8 +931,13 @@ impl SimpleComponent for App {
                         || focused_widget == unpinned_widget
                         || focused_widget.is_ancestor(unpinned_widget)
                     {
-                        self.shortcut_label.set_accelerator("<Ctrl>l");
-                        self.shortcut_label.set_disabled_text("Search bookmarks");
+                        let actions = vec![HotkeyAction {
+                            id: 0,
+                            label: "Search bookmarks".to_string(),
+                            accelerator: "<Ctrl>l".to_string(),
+                        }];
+                        self.hotkey_display
+                            .emit(HotkeyDisplayMsg::UpdateActions(actions));
                     } else {
                         let bm_search = self.bookmark_search_entry.upcast_ref::<gtk::Widget>();
                         let bms = self.bookmarks.widget();
@@ -932,8 +947,13 @@ impl SimpleComponent for App {
                             || focused_widget == bms_widget
                             || focused_widget.is_ancestor(bms_widget)
                         {
-                            self.shortcut_label.set_accelerator("<Ctrl>h");
-                            self.shortcut_label.set_disabled_text("Search tags");
+                            let actions = vec![HotkeyAction {
+                                id: 1,
+                                label: "Search tags".to_string(),
+                                accelerator: "<Ctrl>h".to_string(),
+                            }];
+                            self.hotkey_display
+                                .emit(HotkeyDisplayMsg::UpdateActions(actions));
                         }
                     }
                 }
@@ -1157,6 +1177,23 @@ impl SimpleComponent for App {
                     .set_tooltip_text(Some(self.tag_filter_mode.tooltip()));
 
                 _sender.input(AppMsg::RefreshBookmarks);
+            }
+
+            AppMsg::HotkeyActionTriggered(id) => {
+                // Handle hotkey action based on ID
+                match id {
+                    0 => {
+                        // Search bookmarks action
+                        self.bookmark_search_entry.grab_focus();
+                    }
+                    1 => {
+                        // Search tags action
+                        self.tag_search_entry.grab_focus();
+                    }
+                    _ => {
+                        eprintln!("Unknown hotkey action ID: {}", id);
+                    }
+                }
             }
         }
     }
