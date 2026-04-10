@@ -388,6 +388,14 @@ pub fn update_bookmark(
     Ok(())
 }
 
+pub fn rename_tag(conn: &Connection, id: i64, new_title: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE tags SET title = ?1 WHERE id = ?2",
+        params![new_title, id],
+    )?;
+    Ok(())
+}
+
 pub fn update_bookmark_tags(
     conn: &Connection,
     bookmark_id: i64,

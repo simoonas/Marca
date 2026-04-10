@@ -4,9 +4,7 @@ pub mod queries;
 mod schema;
 
 pub use import::ImportResult;
-pub use models::{
-    Bookmark, BookmarkWithTags, SortDirection, SortField, Tag, TagFilterMode, UNTAGGED_TAG_ID,
-};
+pub use models::{Bookmark, BookmarkWithTags, SortDirection, SortField, Tag, TagFilterMode};
 
 use rusqlite::{Connection, Result};
 use std::path::PathBuf;
@@ -156,6 +154,10 @@ impl Database {
 
     pub fn update_bookmark_tags(&self, bookmark_id: i64, tag_titles: &[String]) -> Result<()> {
         queries::update_bookmark_tags(&self.conn, bookmark_id, tag_titles)
+    }
+
+    pub fn rename_tag(&self, id: i64, new_title: &str) -> Result<()> {
+        queries::rename_tag(&self.conn, id, new_title)
     }
 
     pub fn delete_bookmark(&self, id: i64) -> Result<()> {

@@ -87,6 +87,10 @@ pub enum AppMsg {
 
     // Hotkey action message
     HotkeyActionTriggered(usize),
+
+    // Inline tag editing
+    EditFocusedTag,
+    TagRenamed(i64, String),
 }
 
 #[relm4::component(pub)]
@@ -332,12 +336,14 @@ impl SimpleComponent for App {
             .launch(gtk::ListBox::default())
             .forward(sender.input_sender(), |output| match output {
                 TagRowOutput::Toggle(tag_id) => AppMsg::TagToggled(tag_id),
+                TagRowOutput::Rename(tag_id, new_title) => AppMsg::TagRenamed(tag_id, new_title),
             });
 
         let unpinned_tags = FactoryVecDeque::builder()
             .launch(gtk::ListBox::default())
             .forward(sender.input_sender(), |output| match output {
                 TagRowOutput::Toggle(tag_id) => AppMsg::TagToggled(tag_id),
+                TagRowOutput::Rename(tag_id, new_title) => AppMsg::TagRenamed(tag_id, new_title),
             });
 
         let toast_overlay = adw::ToastOverlay::new();
@@ -415,6 +421,10 @@ impl SimpleComponent for App {
                 }
                 (Key::h, true) => {
                     sender_clone.input(AppMsg::FocusTagSearch);
+                    gtk::glib::Propagation::Stop
+                }
+                (Key::e, true) => {
+                    sender_clone.input(AppMsg::EditFocusedTag);
                     gtk::glib::Propagation::Stop
                 }
                 _ => gtk::glib::Propagation::Proceed,
@@ -919,23 +929,53 @@ impl SimpleComponent for App {
                 if let Some(focused) = gtk::prelude::RootExt::focus(&self.window) {
                     let focused_widget = focused.upcast_ref::<gtk::Widget>();
                     let tag_search = self.tag_search_entry.upcast_ref::<gtk::Widget>();
-                    let pinned = self.pinned_tags.widget();
-                    let unpinned = self.unpinned_tags.widget();
-                    let pinned_widget = pinned.upcast_ref::<gtk::Widget>();
-                    let unpinned_widget = unpinned.upcast_ref::<gtk::Widget>();
+                    
+                    let pinned_widget = self.pinned_tags.widget().clone();
+                    let unpinned_widget = self.unpinned_tags.widget().clone();
+
+                    // Check if a specific TagRow is focused to add the Edit hotkey
+                    let mut focused_tag_id = None;
+                    if let Some(row) = focused_widget
+                        .ancestor(gtk::ListBoxRow::static_type())
+                        .and_downcast::<gtk::ListBoxRow>()
+                    {
+                        let row_widget = row.upcast_ref::<gtk::Widget>();
+                        if row_widget.is_ancestor(pinned_widget.upcast_ref::<gtk::Widget>()) || row_widget.parent().as_ref() == Some(pinned_widget.upcast_ref::<gtk::Widget>()) {
+                            let idx = row.index() as usize;
+                            if let Some(tag_row) = self.pinned_tags.guard().get(idx) {
+                                focused_tag_id = tag_row.tag.id;
+                            }
+                        } else if row_widget.is_ancestor(unpinned_widget.upcast_ref::<gtk::Widget>()) || row_widget.parent().as_ref() == Some(unpinned_widget.upcast_ref::<gtk::Widget>()) {
+                            let idx = row.index() as usize;
+                            if let Some(tag_row) = self.unpinned_tags.guard().get(idx) {
+                                focused_tag_id = tag_row.tag.id;
+                            }
+                        }
+                    }
 
                     if focused_widget == tag_search
                         || focused_widget.is_ancestor(tag_search)
-                        || focused_widget == pinned_widget
-                        || focused_widget.is_ancestor(pinned_widget)
-                        || focused_widget == unpinned_widget
-                        || focused_widget.is_ancestor(unpinned_widget)
+                        || focused_widget == pinned_widget.upcast_ref::<gtk::Widget>()
+                        || focused_widget.is_ancestor(pinned_widget.upcast_ref::<gtk::Widget>())
+                        || focused_widget == unpinned_widget.upcast_ref::<gtk::Widget>()
+                        || focused_widget.is_ancestor(unpinned_widget.upcast_ref::<gtk::Widget>())
                     {
-                        let actions = vec![HotkeyAction {
+                        let mut actions = vec![HotkeyAction {
                             id: 0,
                             label: "Search bookmarks".to_string(),
                             accelerator: "<Ctrl>l".to_string(),
                         }];
+                        
+                        if let Some(id) = focused_tag_id {
+                            if id != UNTAGGED_TAG_ID {
+                                actions.push(HotkeyAction {
+                                    id: 2,
+                                    label: "Edit tag".to_string(),
+                                    accelerator: "^E".to_string(),
+                                });
+                            }
+                        }
+
                         self.hotkey_display
                             .emit(HotkeyDisplayMsg::UpdateActions(actions));
                     } else {
@@ -1190,8 +1230,69 @@ impl SimpleComponent for App {
                         // Search tags action
                         self.tag_search_entry.grab_focus();
                     }
+                    2 => {
+                        // Edit tag inline
+                        _sender.input(AppMsg::EditFocusedTag);
+                    }
                     _ => {
                         eprintln!("Unknown hotkey action ID: {}", id);
+                    }
+                }
+            }
+
+            AppMsg::EditFocusedTag => {
+                let mut is_pinned = false;
+                let mut is_unpinned = false;
+                let mut row_idx = 0;
+
+                let window = self.window.clone();
+                let pinned_widget = self.pinned_tags.widget().clone();
+                let unpinned_widget = self.unpinned_tags.widget().clone();
+
+                if let Some(focused) = gtk::prelude::RootExt::focus(&window) {
+                    if let Some(row) = focused.ancestor(gtk::ListBoxRow::static_type()).and_then(|a| a.downcast::<gtk::ListBoxRow>().ok()) {
+                        let row_widget = row.upcast_ref::<gtk::Widget>();
+                        row_idx = row.index() as usize;
+                        
+                        if row_widget.is_ancestor(pinned_widget.upcast_ref::<gtk::Widget>()) 
+                            || row_widget.parent().as_ref() == Some(pinned_widget.upcast_ref::<gtk::Widget>()) {
+                            is_pinned = true;
+                        } else if row_widget.is_ancestor(unpinned_widget.upcast_ref::<gtk::Widget>())
+                            || row_widget.parent().as_ref() == Some(unpinned_widget.upcast_ref::<gtk::Widget>()) {
+                            is_unpinned = true;
+                        }
+                    }
+                }
+
+                if is_pinned {
+                    self.pinned_tags.guard().send(row_idx, crate::components::TagRowMsg::StartEdit);
+                } else if is_unpinned {
+                    self.unpinned_tags.guard().send(row_idx, crate::components::TagRowMsg::StartEdit);
+                }
+            }
+
+            AppMsg::TagRenamed(tag_id, new_title) => {
+                match self.db.rename_tag(tag_id, &new_title) {
+                    Ok(_) => {
+                        let toast = adw::Toast::new(&format!("Tag renamed to '{}'", new_title));
+                        self.toast_overlay.add_toast(toast);
+                        
+                        _sender.input(AppMsg::RefreshTags);
+                        _sender.input(AppMsg::RefreshBookmarks);
+                    }
+                    Err(e) => {
+                        let error_msg = e.to_string();
+                        let toast_msg = if error_msg.contains("UNIQUE constraint failed") {
+                            "A tag with this name already exists"
+                        } else {
+                            "Failed to rename tag"
+                        };
+                        
+                        let toast = adw::Toast::new(toast_msg);
+                        self.toast_overlay.add_toast(toast);
+                        
+                        // Refresh to revert the local UI state back to the original name
+                        _sender.input(AppMsg::RefreshTags);
                     }
                 }
             }
