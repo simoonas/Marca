@@ -160,6 +160,10 @@ impl Database {
         queries::rename_tag(&self.conn, id, new_title)
     }
 
+    pub fn delete_tag(&self, id: i64) -> Result<()> {
+        queries::delete_tag(&self.conn, id)
+    }
+
     pub fn delete_bookmark(&self, id: i64) -> Result<()> {
         queries::delete_bookmark(&self.conn, id)
     }

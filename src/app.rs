@@ -90,6 +90,7 @@ pub enum AppMsg {
 
     // Inline tag editing
     EditFocusedTag,
+    DeleteFocusedTag,
     TagRenamed(i64, String),
 }
 
@@ -337,6 +338,7 @@ impl SimpleComponent for App {
             .forward(sender.input_sender(), |output| match output {
                 TagRowOutput::Toggle(tag_id) => AppMsg::TagToggled(tag_id),
                 TagRowOutput::Rename(tag_id, new_title) => AppMsg::TagRenamed(tag_id, new_title),
+                TagRowOutput::Delete(tag_id) => AppMsg::DeleteFocusedTag,
             });
 
         let unpinned_tags = FactoryVecDeque::builder()
@@ -344,6 +346,7 @@ impl SimpleComponent for App {
             .forward(sender.input_sender(), |output| match output {
                 TagRowOutput::Toggle(tag_id) => AppMsg::TagToggled(tag_id),
                 TagRowOutput::Rename(tag_id, new_title) => AppMsg::TagRenamed(tag_id, new_title),
+                TagRowOutput::Delete(tag_id) => AppMsg::DeleteFocusedTag,
             });
 
         let toast_overlay = adw::ToastOverlay::new();
@@ -425,6 +428,10 @@ impl SimpleComponent for App {
                 }
                 (Key::e, true) => {
                     sender_clone.input(AppMsg::EditFocusedTag);
+                    gtk::glib::Propagation::Stop
+                }
+                (Key::d, true) => {
+                    sender_clone.input(AppMsg::DeleteFocusedTag);
                     gtk::glib::Propagation::Stop
                 }
                 _ => gtk::glib::Propagation::Proceed,
@@ -969,6 +976,11 @@ impl SimpleComponent for App {
                                     label: "Edit tag".to_string(),
                                     accelerator: "<Ctrl>e".to_string(),
                                 });
+                                actions.push(HotkeyAction {
+                                    id: 3,
+                                    label: "Delete tag".to_string(),
+                                    accelerator: "<Ctrl>d".to_string(),
+                                });
                             }
                         }
 
@@ -1236,6 +1248,10 @@ impl SimpleComponent for App {
                         // Edit tag inline
                         _sender.input(AppMsg::EditFocusedTag);
                     }
+                    3 => {
+                        // Delete tag
+                        _sender.input(AppMsg::DeleteFocusedTag);
+                    }
                     _ => {
                         eprintln!("Unknown hotkey action ID: {}", id);
                     }
@@ -1270,6 +1286,60 @@ impl SimpleComponent for App {
                     self.pinned_tags.guard().send(row_idx, crate::components::TagRowMsg::StartEdit);
                 } else if is_unpinned {
                     self.unpinned_tags.guard().send(row_idx, crate::components::TagRowMsg::StartEdit);
+                }
+            }
+
+            AppMsg::DeleteFocusedTag => {
+                let window = self.window.clone();
+                let pinned_widget = self.pinned_tags.widget().clone();
+                let unpinned_widget = self.unpinned_tags.widget().clone();
+
+                if let Some(focused) = gtk::prelude::RootExt::focus(&window) {
+                    if let Some(row) = focused.ancestor(gtk::ListBoxRow::static_type()).and_then(|a| a.downcast::<gtk::ListBoxRow>().ok()) {
+                        let row_widget = row.upcast_ref::<gtk::Widget>();
+                        let row_idx = row.index() as usize;
+
+                        let is_pinned = row_widget.is_ancestor(pinned_widget.upcast_ref::<gtk::Widget>()) 
+                            || row_widget.parent().as_ref() == Some(pinned_widget.upcast_ref::<gtk::Widget>());
+                        let is_unpinned = row_widget.is_ancestor(unpinned_widget.upcast_ref::<gtk::Widget>())
+                            || row_widget.parent().as_ref() == Some(unpinned_widget.upcast_ref::<gtk::Widget>());
+
+                        if is_pinned {
+                            if let Some(tag) = self.pinned_tags.guard().get(row_idx) {
+                                if let Some(tag_id) = tag.tag.id {
+                                    match self.db.delete_tag(tag_id) {
+                                        Ok(_) => {
+                                            let toast = adw::Toast::new("Tag deleted");
+                                            self.toast_overlay.add_toast(toast);
+                                            _sender.input(AppMsg::RefreshTags);
+                                            _sender.input(AppMsg::RefreshBookmarks);
+                                        }
+                                        Err(e) => {
+                                            let toast = adw::Toast::new(&format!("Failed to delete tag: {}", e));
+                                            self.toast_overlay.add_toast(toast);
+                                        }
+                                    }
+                                }
+                            }
+                        } else if is_unpinned {
+                            if let Some(tag) = self.unpinned_tags.guard().get(row_idx) {
+                                if let Some(tag_id) = tag.tag.id {
+                                    match self.db.delete_tag(tag_id) {
+                                        Ok(_) => {
+                                            let toast = adw::Toast::new("Tag deleted");
+                                            self.toast_overlay.add_toast(toast);
+                                            _sender.input(AppMsg::RefreshTags);
+                                            _sender.input(AppMsg::RefreshBookmarks);
+                                        }
+                                        Err(e) => {
+                                            let toast = adw::Toast::new(&format!("Failed to delete tag: {}", e));
+                                            self.toast_overlay.add_toast(toast);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

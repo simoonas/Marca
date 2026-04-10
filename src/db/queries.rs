@@ -396,6 +396,13 @@ pub fn rename_tag(conn: &Connection, id: i64, new_title: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn delete_tag(conn: &Connection, id: i64) -> Result<()> {
+    let tx = conn.unchecked_transaction()?;
+    tx.execute("DELETE FROM tags WHERE id = ?1", params![id])?;
+    tx.commit()?;
+    Ok(())
+}
+
 pub fn update_bookmark_tags(
     conn: &Connection,
     bookmark_id: i64,
