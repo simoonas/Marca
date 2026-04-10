@@ -86,19 +86,19 @@ impl FactoryComponent for TagRow {
                     },
 
                     connect_activate[sender] => move |entry| {
-                        sender.input(TagRowMsg::SubmitEdit(entry.text().to_string()));
+                        let _ = sender.input_sender().send(TagRowMsg::SubmitEdit(entry.text().to_string()));
                     },
 
                     add_controller = gtk::EventControllerFocus {
                         connect_leave[sender, entry] => move |_| {
-                            sender.input(TagRowMsg::SubmitEdit(entry.text().to_string()));
+                            let _ = sender.input_sender().send(TagRowMsg::SubmitEdit(entry.text().to_string()));
                         }
                     },
 
                     add_controller = gtk::EventControllerKey {
                         connect_key_pressed[sender] => move |_, key, _, _| {
                             if key == gtk::gdk::Key::Escape {
-                                sender.input(TagRowMsg::CancelEdit);
+                                let _ = sender.input_sender().send(TagRowMsg::CancelEdit);
                                 return gtk::glib::Propagation::Stop;
                             }
                             gtk::glib::Propagation::Proceed

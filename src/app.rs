@@ -960,21 +960,23 @@ impl SimpleComponent for App {
                         || focused_widget == unpinned_widget.upcast_ref::<gtk::Widget>()
                         || focused_widget.is_ancestor(unpinned_widget.upcast_ref::<gtk::Widget>())
                     {
-                        let mut actions = vec![HotkeyAction {
-                            id: 0,
-                            label: "Search bookmarks".to_string(),
-                            accelerator: "<Ctrl>l".to_string(),
-                        }];
+                        let mut actions = vec![];
                         
                         if let Some(id) = focused_tag_id {
                             if id != UNTAGGED_TAG_ID {
                                 actions.push(HotkeyAction {
                                     id: 2,
                                     label: "Edit tag".to_string(),
-                                    accelerator: "^E".to_string(),
+                                    accelerator: "<Ctrl>e".to_string(),
                                 });
                             }
                         }
+
+                        actions.push(HotkeyAction {
+                            id: 0,
+                            label: "Search bookmarks".to_string(),
+                            accelerator: "<Ctrl>l".to_string(),
+                        });
 
                         self.hotkey_display
                             .emit(HotkeyDisplayMsg::UpdateActions(actions));
