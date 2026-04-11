@@ -10,6 +10,16 @@ pub struct TagRow {
     pub is_editing: bool,
 }
 
+impl TagRow {
+    pub fn display_title(&self) -> String {
+        if self.tag.id == Some(UNTAGGED_TAG_ID) {
+            self.tag.title.clone()
+        } else {
+            format!("#{}", self.tag.title)
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum TagRowMsg {
     Clicked,
@@ -59,7 +69,7 @@ impl FactoryComponent for TagRow {
                 #[name = "label"]
                 gtk::Label {
                     #[watch]
-                    set_label: &self.tag.title,
+                    set_label: &self.display_title(),
                     #[watch]
                     set_visible: !self.is_editing,
                     set_halign: gtk::Align::Start,
@@ -75,7 +85,7 @@ impl FactoryComponent for TagRow {
                 #[name = "entry"]
                 gtk::Entry {
                     #[watch]
-                    set_text: &self.tag.title,
+                    set_text: &self.display_title(),
                     #[watch]
                     set_visible: self.is_editing,
                     set_hexpand: true,
@@ -135,7 +145,7 @@ impl FactoryComponent for TagRow {
             TagRowMsg::SubmitEdit(new_title) => {
                 if self.is_editing {
                     self.is_editing = false;
-                    let title = new_title.trim().to_string();
+                    let title = new_title.trim().trim_start_matches('#').to_string();
                     if !title.is_empty() && title != self.tag.title {
                         if let Some(tag_id) = self.tag.id {
                             let _ = sender.output(TagRowOutput::Rename(tag_id, title));

@@ -1,13 +1,17 @@
 mod app;
 mod components;
 mod db;
-mod fixtures;
 mod fetch_metadata;
+mod fixtures;
 pub mod import;
-
+mod icon_names {
+    pub use shipped::*; // Include all shipped icons by default
+    include!(concat!(env!("OUT_DIR"), "/icon_names.rs"));
+}
 use relm4::RelmApp;
 
 fn main() {
+    relm4_icons::initialize_icons(icon_names::GRESOURCE_BYTES, icon_names::RESOURCE_PREFIX);
     // Initialize database
     let db = db::Database::new().expect("Failed to open database");
 

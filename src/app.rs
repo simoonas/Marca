@@ -5,6 +5,8 @@ use crate::components::{
 };
 use crate::db::Database;
 use crate::db::models::{SortDirection, SortField, TagFilterMode, UNTAGGED_TAG_ID};
+use crate::icon_names;
+use crate::icon_names::custom::*;
 use adw::prelude::*;
 use relm4::factory::FactoryVecDeque;
 use relm4::prelude::*;
@@ -27,7 +29,7 @@ pub struct App {
     hotkey_display: Controller<HotkeyDisplay>,
 
     // Hotkey widgets (for focus tracking)
-    tag_search_entry: gtk::SearchEntry,
+    tag_search_entry: gtk::Entry,
     bookmark_search_entry: gtk::SearchEntry,
 
     // Sort state
@@ -137,10 +139,11 @@ impl SimpleComponent for App {
                                     add_css_class: "linked",
 
                                     #[name = "tag_search_entry"]
-                                    gtk::SearchEntry {
+                                    gtk::Entry {
                                         set_placeholder_text: Some("Search tags..."),
                                         set_hexpand: true,
-                                        connect_search_changed[sender] => move |entry| {
+                                        set_primary_icon_name: Some(HASHTAG_SYMBOLIC),
+                                        connect_changed[sender] => move |entry| {
                                             sender.input(AppMsg::TagSearch(entry.text().to_string()));
                                         }
                                     },
@@ -165,7 +168,6 @@ impl SimpleComponent for App {
 
                                 gtk::Box {
                                     set_orientation: gtk::Orientation::Vertical,
-
                                     #[local_ref]
                                     pinned_tags_list -> gtk::ListBox {
                                         set_css_classes: &["navigation-sidebar"],
@@ -297,9 +299,13 @@ impl SimpleComponent for App {
                     set_revealed: true,
 
                     pack_start = &gtk::Button {
-                        set_icon_name: "cogged-wheel",
                         set_tooltip_text: Some("Settings"),
                         connect_clicked => AppMsg::OpenSettings,
+
+                        set_child = Some(&gtk::Image::builder()
+                            .icon_name(PEGGED_WHEELS_SYMBOLIC)
+                            .icon_size(gtk::IconSize::Large)
+                            .build()),
                     },
 
                     pack_end = model.hotkey_display.widget().upcast_ref::<gtk::Widget>() {
@@ -367,7 +373,7 @@ impl SimpleComponent for App {
 
             hotkey_display,
 
-            tag_search_entry: gtk::SearchEntry::new(),
+            tag_search_entry: gtk::Entry::new(),
             bookmark_search_entry: gtk::SearchEntry::new(),
 
             sort_field: SortField::Created,
@@ -936,7 +942,7 @@ impl SimpleComponent for App {
                 if let Some(focused) = gtk::prelude::RootExt::focus(&self.window) {
                     let focused_widget = focused.upcast_ref::<gtk::Widget>();
                     let tag_search = self.tag_search_entry.upcast_ref::<gtk::Widget>();
-                    
+
                     let pinned_widget = self.pinned_tags.widget().clone();
                     let unpinned_widget = self.unpinned_tags.widget().clone();
 
@@ -947,12 +953,19 @@ impl SimpleComponent for App {
                         .and_downcast::<gtk::ListBoxRow>()
                     {
                         let row_widget = row.upcast_ref::<gtk::Widget>();
-                        if row_widget.is_ancestor(pinned_widget.upcast_ref::<gtk::Widget>()) || row_widget.parent().as_ref() == Some(pinned_widget.upcast_ref::<gtk::Widget>()) {
+                        if row_widget.is_ancestor(pinned_widget.upcast_ref::<gtk::Widget>())
+                            || row_widget.parent().as_ref()
+                                == Some(pinned_widget.upcast_ref::<gtk::Widget>())
+                        {
                             let idx = row.index() as usize;
                             if let Some(tag_row) = self.pinned_tags.guard().get(idx) {
                                 focused_tag_id = tag_row.tag.id;
                             }
-                        } else if row_widget.is_ancestor(unpinned_widget.upcast_ref::<gtk::Widget>()) || row_widget.parent().as_ref() == Some(unpinned_widget.upcast_ref::<gtk::Widget>()) {
+                        } else if row_widget
+                            .is_ancestor(unpinned_widget.upcast_ref::<gtk::Widget>())
+                            || row_widget.parent().as_ref()
+                                == Some(unpinned_widget.upcast_ref::<gtk::Widget>())
+                        {
                             let idx = row.index() as usize;
                             if let Some(tag_row) = self.unpinned_tags.guard().get(idx) {
                                 focused_tag_id = tag_row.tag.id;
@@ -968,7 +981,7 @@ impl SimpleComponent for App {
                         || focused_widget.is_ancestor(unpinned_widget.upcast_ref::<gtk::Widget>())
                     {
                         let mut actions = vec![];
-                        
+
                         if let Some(id) = focused_tag_id {
                             if id != UNTAGGED_TAG_ID {
                                 actions.push(HotkeyAction {
@@ -1268,24 +1281,36 @@ impl SimpleComponent for App {
                 let unpinned_widget = self.unpinned_tags.widget().clone();
 
                 if let Some(focused) = gtk::prelude::RootExt::focus(&window) {
-                    if let Some(row) = focused.ancestor(gtk::ListBoxRow::static_type()).and_then(|a| a.downcast::<gtk::ListBoxRow>().ok()) {
+                    if let Some(row) = focused
+                        .ancestor(gtk::ListBoxRow::static_type())
+                        .and_then(|a| a.downcast::<gtk::ListBoxRow>().ok())
+                    {
                         let row_widget = row.upcast_ref::<gtk::Widget>();
                         row_idx = row.index() as usize;
-                        
-                        if row_widget.is_ancestor(pinned_widget.upcast_ref::<gtk::Widget>()) 
-                            || row_widget.parent().as_ref() == Some(pinned_widget.upcast_ref::<gtk::Widget>()) {
+
+                        if row_widget.is_ancestor(pinned_widget.upcast_ref::<gtk::Widget>())
+                            || row_widget.parent().as_ref()
+                                == Some(pinned_widget.upcast_ref::<gtk::Widget>())
+                        {
                             is_pinned = true;
-                        } else if row_widget.is_ancestor(unpinned_widget.upcast_ref::<gtk::Widget>())
-                            || row_widget.parent().as_ref() == Some(unpinned_widget.upcast_ref::<gtk::Widget>()) {
+                        } else if row_widget
+                            .is_ancestor(unpinned_widget.upcast_ref::<gtk::Widget>())
+                            || row_widget.parent().as_ref()
+                                == Some(unpinned_widget.upcast_ref::<gtk::Widget>())
+                        {
                             is_unpinned = true;
                         }
                     }
                 }
 
                 if is_pinned {
-                    self.pinned_tags.guard().send(row_idx, crate::components::TagRowMsg::StartEdit);
+                    self.pinned_tags
+                        .guard()
+                        .send(row_idx, crate::components::TagRowMsg::StartEdit);
                 } else if is_unpinned {
-                    self.unpinned_tags.guard().send(row_idx, crate::components::TagRowMsg::StartEdit);
+                    self.unpinned_tags
+                        .guard()
+                        .send(row_idx, crate::components::TagRowMsg::StartEdit);
                 }
             }
 
@@ -1295,14 +1320,21 @@ impl SimpleComponent for App {
                 let unpinned_widget = self.unpinned_tags.widget().clone();
 
                 if let Some(focused) = gtk::prelude::RootExt::focus(&window) {
-                    if let Some(row) = focused.ancestor(gtk::ListBoxRow::static_type()).and_then(|a| a.downcast::<gtk::ListBoxRow>().ok()) {
+                    if let Some(row) = focused
+                        .ancestor(gtk::ListBoxRow::static_type())
+                        .and_then(|a| a.downcast::<gtk::ListBoxRow>().ok())
+                    {
                         let row_widget = row.upcast_ref::<gtk::Widget>();
                         let row_idx = row.index() as usize;
 
-                        let is_pinned = row_widget.is_ancestor(pinned_widget.upcast_ref::<gtk::Widget>()) 
-                            || row_widget.parent().as_ref() == Some(pinned_widget.upcast_ref::<gtk::Widget>());
-                        let is_unpinned = row_widget.is_ancestor(unpinned_widget.upcast_ref::<gtk::Widget>())
-                            || row_widget.parent().as_ref() == Some(unpinned_widget.upcast_ref::<gtk::Widget>());
+                        let is_pinned = row_widget
+                            .is_ancestor(pinned_widget.upcast_ref::<gtk::Widget>())
+                            || row_widget.parent().as_ref()
+                                == Some(pinned_widget.upcast_ref::<gtk::Widget>());
+                        let is_unpinned = row_widget
+                            .is_ancestor(unpinned_widget.upcast_ref::<gtk::Widget>())
+                            || row_widget.parent().as_ref()
+                                == Some(unpinned_widget.upcast_ref::<gtk::Widget>());
 
                         if is_pinned {
                             if let Some(tag) = self.pinned_tags.guard().get(row_idx) {
@@ -1315,7 +1347,10 @@ impl SimpleComponent for App {
                                             _sender.input(AppMsg::RefreshBookmarks);
                                         }
                                         Err(e) => {
-                                            let toast = adw::Toast::new(&format!("Failed to delete tag: {}", e));
+                                            let toast = adw::Toast::new(&format!(
+                                                "Failed to delete tag: {}",
+                                                e
+                                            ));
                                             self.toast_overlay.add_toast(toast);
                                         }
                                     }
@@ -1332,7 +1367,10 @@ impl SimpleComponent for App {
                                             _sender.input(AppMsg::RefreshBookmarks);
                                         }
                                         Err(e) => {
-                                            let toast = adw::Toast::new(&format!("Failed to delete tag: {}", e));
+                                            let toast = adw::Toast::new(&format!(
+                                                "Failed to delete tag: {}",
+                                                e
+                                            ));
                                             self.toast_overlay.add_toast(toast);
                                         }
                                     }
@@ -1348,7 +1386,7 @@ impl SimpleComponent for App {
                     Ok(_) => {
                         let toast = adw::Toast::new(&format!("Tag renamed to '{}'", new_title));
                         self.toast_overlay.add_toast(toast);
-                        
+
                         _sender.input(AppMsg::RefreshTags);
                         _sender.input(AppMsg::RefreshBookmarks);
                     }
@@ -1359,10 +1397,10 @@ impl SimpleComponent for App {
                         } else {
                             "Failed to rename tag"
                         };
-                        
+
                         let toast = adw::Toast::new(toast_msg);
                         self.toast_overlay.add_toast(toast);
-                        
+
                         // Refresh to revert the local UI state back to the original name
                         _sender.input(AppMsg::RefreshTags);
                     }
