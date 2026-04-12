@@ -100,6 +100,7 @@ impl HotkeyDisplay {
         for action in actions {
             let button = gtk::Button::new();
             button.add_css_class("flat");
+            button.add_css_class("actionbar-btn");
             button.set_can_focus(false);
 
             let container = gtk::Box::new(gtk::Orientation::Horizontal, 0);

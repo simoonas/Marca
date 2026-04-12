@@ -114,10 +114,9 @@ impl SimpleComponent for App {
 
             #[local_ref]
             toast_overlay -> adw::ToastOverlay {
-                gtk::Box {
-                    set_orientation: gtk::Orientation::Vertical,
-
-                    adw::NavigationSplitView {
+                adw::ToolbarView {
+                    #[wrap(Some)]
+                    set_content = &adw::NavigationSplitView {
                     set_vexpand: true,
                     set_min_sidebar_width: 200.0,
                     set_max_sidebar_width: 300.0,
@@ -295,16 +294,17 @@ impl SimpleComponent for App {
                     }
                 },
 
-                gtk::ActionBar {
+                add_bottom_bar = &gtk::ActionBar {
                     set_revealed: true,
 
                     pack_start = &gtk::Button {
                         set_tooltip_text: Some("Settings"),
+                        add_css_class: "actionbar-btn",
                         connect_clicked => AppMsg::OpenSettings,
 
                         set_child = Some(&gtk::Image::builder()
                             .icon_name(PEGGED_WHEELS_SYMBOLIC)
-                            .icon_size(gtk::IconSize::Large)
+                            .icon_size(gtk::IconSize::Normal)
                             .build()),
                     },
 
@@ -482,7 +482,9 @@ impl SimpleComponent for App {
              button.compact { padding: 0; margin: 0; min-height: 24px; font-size: 0.85em; }
              .untagged-tag { background-color: cyan; background-color: rgba(29, 108, 145, 0.9); }
              .untagged-tag-label { font-style: italic; }
-             .hotkey-shortcut { font-size: 0.8em; padding: 0; margin: 0; }",
+             .hotkey-shortcut { font-size: 0.8em; padding: 0; margin: 0; }
+             actionbar > revealer { min-height: 0; }
+             actionbar > box { min-height: 0; padding: 0; }",
         );
         gtk::style_context_add_provider_for_display(
             &adw::prelude::WidgetExt::display(&root),
@@ -1450,7 +1452,8 @@ impl SimpleComponent for App {
                 }
             }
 
-            AppMsg::EditFocusedBookmark => { // TODO: refactor with focused_is_bookmark_row
+            AppMsg::EditFocusedBookmark => {
+                // TODO: refactor with focused_is_bookmark_row
                 let window = self.window.clone();
                 let bms = self.bookmarks.widget();
                 let bms_widget = bms.upcast_ref::<gtk::Widget>();
