@@ -168,6 +168,10 @@ impl Database {
         queries::delete_bookmark(&self.conn, id)
     }
 
+    pub fn restore_bookmark(&self, id: i64) -> Result<()> {
+        queries::restore_bookmark(&self.conn, id)
+    }
+
     pub fn get_bookmark_by_id(&self, id: i64) -> Result<BookmarkWithTags> {
         queries::get_bookmark_by_id(&self.conn, id)
     }

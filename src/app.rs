@@ -21,7 +21,7 @@ pub struct App {
     tag_search: String,
     edit_dialog: Option<Controller<BookmarkEditDialog>>,
     toast_overlay: adw::ToastOverlay,
-    last_deleted_bookmark: Option<(i64, crate::db::models::BookmarkWithTags)>,
+    deleted_bookmarks: Vec<i64>,
     window: adw::ApplicationWindow,
     settings_dialog: Option<Controller<SettingsDialog>>,
 
@@ -363,7 +363,7 @@ impl SimpleComponent for App {
             tag_search: String::new(),
             edit_dialog: None,
             toast_overlay: toast_overlay.clone(),
-            last_deleted_bookmark: None,
+            deleted_bookmarks: Vec::new(),
             window: root.clone(),
             settings_dialog: None,
 
@@ -920,51 +920,49 @@ impl SimpleComponent for App {
             }
 
             AppMsg::DeleteBookmark(id) => {
-                // Store bookmark before deleting for undo
-                if let Ok(bookmark_with_tags) = self.db.get_bookmark_by_id(id) {
-                    self.last_deleted_bookmark = Some((id, bookmark_with_tags.clone()));
+                // Mark bookmark as deleted
+                match self.db.delete_bookmark(id) {
+                    Ok(_) => {
+                        self.deleted_bookmarks.push(id);
 
-                    // Delete from database
-                    match self.db.delete_bookmark(id) {
-                        Ok(_) => {
-                            // Refresh bookmarks list
-                            _sender.input(AppMsg::RefreshBookmarks);
+                        // Refresh bookmarks list
+                        _sender.input(AppMsg::RefreshBookmarks);
 
-                            // Show toast with undo
-                            let toast = adw::Toast::new("Bookmark deleted");
-                            toast.set_button_label(Some("Undo"));
-                            toast.set_action_name(Some("app.undo-delete"));
-                            toast.set_timeout(5); // 5 seconds to undo
+                        // Show toast with undo
+                        let toast = adw::Toast::new("Bookmark deleted");
+                        toast.set_button_label(Some("Undo"));
+                        toast.set_timeout(5); // 5 seconds to undo
 
-                            // Connect undo action
-                            let sender = _sender.clone();
-                            toast.connect_button_clicked(move |_| {
-                                sender.input(AppMsg::UndoDelete);
-                            });
+                        // Connect undo action
+                        let sender = _sender.clone();
+                        toast.connect_button_clicked(move |_| {
+                            sender.input(AppMsg::UndoDelete);
+                        });
 
-                            self.toast_overlay.add_toast(toast);
-                        }
-                        Err(e) => {
-                            eprintln!("Error deleting bookmark: {}", e);
-                            let toast = adw::Toast::new("Failed to delete bookmark");
-                            self.toast_overlay.add_toast(toast);
-                        }
+                        self.toast_overlay.add_toast(toast);
+                    }
+                    Err(e) => {
+                        eprintln!("Error deleting bookmark: {}", e);
+                        let toast = adw::Toast::new("Failed to delete bookmark");
+                        self.toast_overlay.add_toast(toast);
                     }
                 }
             }
 
             AppMsg::UndoDelete => {
-                if let Some((id, bookmark_with_tags)) = self.last_deleted_bookmark.take() {
-                    // Re-insert the bookmark
-                    let mut bookmark = bookmark_with_tags.bookmark;
-                    bookmark.id = Some(id); // Keep the same ID
-
-                    // For now, just refresh to show it's working
-                    // TODO: Properly re-insert with same ID
-                    eprintln!("Undo delete not fully implemented yet - need to re-insert bookmark");
-
-                    let toast = adw::Toast::new("Undo is not fully implemented yet");
-                    self.toast_overlay.add_toast(toast);
+                if let Some(id) = self.deleted_bookmarks.pop() {
+                    match self.db.restore_bookmark(id) {
+                        Ok(_) => {
+                            _sender.input(AppMsg::RefreshBookmarks);
+                            let toast = adw::Toast::new("Bookmark restored");
+                            self.toast_overlay.add_toast(toast);
+                        }
+                        Err(e) => {
+                            eprintln!("Error restoring bookmark: {}", e);
+                            let toast = adw::Toast::new("Failed to restore bookmark");
+                            self.toast_overlay.add_toast(toast);
+                        }
+                    }
                 }
             }
 

@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS bookmarks (
     created INTEGER NOT NULL,
     changed INTEGER NOT NULL,
     favicon_hash INTEGER,
+    deleted BOOLEAN NOT NULL DEFAULT 0,
     FOREIGN KEY (favicon_hash) REFERENCES favicons(hash)
 )";
 
@@ -64,3 +65,12 @@ pub const CREATE_TRIGGERS: &[&str] = &[
         WHERE rowid = new.id;
     END",
 ];
+// CREATE TRIGGER cleanup_unused_tags
+// AFTER DELETE/UPDATE ON bookmark_tags
+// BEGIN
+//     DELETE FROM tags
+//     WHERE id = OLD.tag_id
+//     AND NOT EXISTS (
+//         SELECT 1 FROM bookmark_tags WHERE tag_id = OLD.tag_id
+//     );
+// END;

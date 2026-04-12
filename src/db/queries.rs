@@ -1,6 +1,7 @@
 use crate::db::models::{SortDirection, SortField, TagFilterMode, UNTAGGED_TAG_ID};
 use crate::db::{Bookmark, BookmarkWithTags, Tag};
 use rusqlite::{params, Connection, OptionalExtension, Result};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn insert_bookmark(conn: &Connection, bookmark: &Bookmark) -> Result<i64> {
     conn.execute(
@@ -93,6 +94,7 @@ pub fn get_all_bookmarks(
         "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
          FROM bookmarks b
          LEFT JOIN favicons f ON b.favicon_hash = f.hash
+         WHERE b.deleted = 0
          {}",
         order_clause
     );
@@ -185,7 +187,7 @@ pub fn search_bookmarks(
                  FROM bookmarks b
                  JOIN bookmarks_fts fts ON b.id = fts.rowid
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
-                 WHERE bookmarks_fts MATCH ?1
+                 WHERE bookmarks_fts MATCH ?1 AND b.deleted = 0
                  {}",
                 order_clause
             );
@@ -206,7 +208,7 @@ pub fn search_bookmarks(
                  JOIN bookmarks_fts fts ON b.id = fts.rowid
                  LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
-                 WHERE bookmarks_fts MATCH ?1 AND bt.tag_id IS NULL
+                 WHERE bookmarks_fts MATCH ?1 AND bt.tag_id IS NULL AND b.deleted = 0
                  {}",
                 order_clause
             );
@@ -227,7 +229,7 @@ pub fn search_bookmarks(
                  JOIN bookmarks_fts fts ON b.id = fts.rowid
                  LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
-                 WHERE bookmarks_fts MATCH ?1 AND (bt.tag_id IS NULL OR bt.tag_id IN (SELECT value FROM json_each(?2)))
+                 WHERE bookmarks_fts MATCH ?1 AND (bt.tag_id IS NULL OR bt.tag_id IN (SELECT value FROM json_each(?2))) AND b.deleted = 0
                  GROUP BY b.id
                  {}",
                 order_clause
@@ -256,7 +258,7 @@ pub fn search_bookmarks(
                  JOIN bookmarks_fts fts ON b.id = fts.rowid
                  JOIN bookmark_tags bt ON b.id = bt.bookmark_id
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
-                 WHERE bookmarks_fts MATCH ?1 AND bt.tag_id IN (SELECT value FROM json_each(?2))
+                 WHERE bookmarks_fts MATCH ?1 AND bt.tag_id IN (SELECT value FROM json_each(?2)) AND b.deleted = 0
                  GROUP BY b.id
                  {}
                  {}",
@@ -294,7 +296,7 @@ pub fn search_bookmarks(
                  FROM bookmarks b
                  LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
-                 WHERE bt.tag_id IS NULL
+                 WHERE bt.tag_id IS NULL AND b.deleted = 0
                  {}",
                 order_clause
             );
@@ -314,7 +316,7 @@ pub fn search_bookmarks(
                  FROM bookmarks b
                  LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
-                 WHERE bt.tag_id IS NULL OR bt.tag_id IN (SELECT value FROM json_each(?1))
+                 WHERE (bt.tag_id IS NULL OR bt.tag_id IN (SELECT value FROM json_each(?1))) AND b.deleted = 0
                  GROUP BY b.id
                  {}",
                 order_clause
@@ -340,7 +342,7 @@ pub fn search_bookmarks(
                  FROM bookmarks b
                  JOIN bookmark_tags bt ON b.id = bt.bookmark_id
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
-                 WHERE bt.tag_id IN (SELECT value FROM json_each(?1))
+                 WHERE bt.tag_id IN (SELECT value FROM json_each(?1)) AND b.deleted = 0
                  GROUP BY b.id
                  {}
                  {}",
@@ -425,7 +427,26 @@ pub fn update_bookmark_tags(
 }
 
 pub fn delete_bookmark(conn: &Connection, id: i64) -> Result<()> {
-    conn.execute("DELETE FROM bookmarks WHERE id = ?1", params![id])?;
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    conn.execute(
+        "UPDATE bookmarks SET deleted = 1, changed = ?1 WHERE id = ?2",
+        params![now, id],
+    )?;
+    Ok(())
+}
+
+pub fn restore_bookmark(conn: &Connection, id: i64) -> Result<()> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+    conn.execute(
+        "UPDATE bookmarks SET deleted = 0, changed = ?1 WHERE id = ?2",
+        params![now, id],
+    )?;
     Ok(())
 }
 
