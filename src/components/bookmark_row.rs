@@ -8,7 +8,7 @@ use std::io::Cursor;
 
 #[derive(Debug)]
 pub struct BookmarkRow {
-    bookmark: Bookmark,
+    pub bookmark: Bookmark,
     tags: Vec<Tag>,
     hovered: bool,
     favicon_data: Option<Vec<u8>>,
@@ -46,15 +46,11 @@ pub enum BookmarkRowMsg {
     Clicked,
     HoverEnter,
     HoverLeave,
-    EditClicked,
-    DeleteClicked,
 }
 
 #[derive(Debug)]
 pub enum BookmarkRowOutput {
     Open(String),
-    Edit(i64),
-    Delete(i64),
 }
 
 #[relm4::factory(pub)]
@@ -88,9 +84,7 @@ impl FactoryComponent for BookmarkRow {
                 },
             },
 
-            gtk::Overlay {
-                #[wrap(Some)]
-                set_child = &gtk::Box {
+            gtk::Box {
                     set_orientation: gtk::Orientation::Horizontal,
                     set_spacing: 8,
                     set_margin_all: 8,
@@ -153,37 +147,6 @@ impl FactoryComponent for BookmarkRow {
                         }
                     }
                 },
-
-                add_overlay = &gtk::Box {
-                    set_halign: gtk::Align::End,
-                    set_valign: gtk::Align::Start,
-                    set_margin_top: 4,
-                    set_margin_end: 4,
-                    set_spacing: 4,
-                    #[watch]
-                    set_visible: self.hovered,
-
-                    gtk::Button {
-                        set_icon_name: "document-edit-symbolic",
-                        add_css_class: "flat",
-                        add_css_class: "circular",
-                        set_tooltip_text: Some("Edit bookmark"),
-                        connect_clicked[sender] => move |_| {
-                            sender.input(BookmarkRowMsg::EditClicked);
-                        }
-                    },
-
-                    gtk::Button {
-                        set_icon_name: "user-trash-symbolic",
-                        add_css_class: "flat",
-                        add_css_class: "circular",
-                        set_tooltip_text: Some("Delete bookmark"),
-                        connect_clicked[sender] => move |_| {
-                            sender.input(BookmarkRowMsg::DeleteClicked);
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -257,16 +220,6 @@ impl FactoryComponent for BookmarkRow {
             }
             BookmarkRowMsg::HoverLeave => {
                 self.hovered = false;
-            }
-            BookmarkRowMsg::EditClicked => {
-                if let Some(id) = self.bookmark.id {
-                    sender.output(BookmarkRowOutput::Edit(id)).unwrap();
-                }
-            }
-            BookmarkRowMsg::DeleteClicked => {
-                if let Some(id) = self.bookmark.id {
-                    sender.output(BookmarkRowOutput::Delete(id)).unwrap();
-                }
             }
         }
     }

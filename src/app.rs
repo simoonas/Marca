@@ -79,6 +79,11 @@ pub enum AppMsg {
     NavigateNext,
     NavigatePrev,
     NavigateTab,
+    EditFocusedTag,
+    DeleteFocusedTag,
+    EditFocusedBookmark,
+    DeleteFocusedBookmark,
+    TagRenamed(i64, String),
 
     // Sort messages
     CycleSortField,
@@ -89,11 +94,6 @@ pub enum AppMsg {
 
     // Hotkey action message
     HotkeyActionTriggered(usize),
-
-    // Inline tag editing
-    EditFocusedTag,
-    DeleteFocusedTag,
-    TagRenamed(i64, String),
 }
 
 #[relm4::component(pub)]
@@ -334,8 +334,6 @@ impl SimpleComponent for App {
             .launch(gtk::ListBox::default())
             .forward(sender.input_sender(), |output| match output {
                 BookmarkRowOutput::Open(url) => AppMsg::OpenBookmark(url),
-                BookmarkRowOutput::Edit(id) => AppMsg::EditBookmark(id),
-                BookmarkRowOutput::Delete(id) => AppMsg::DeleteBookmark(id),
             });
 
         // Initialize factories for pinned and unpinned tags
@@ -344,7 +342,6 @@ impl SimpleComponent for App {
             .forward(sender.input_sender(), |output| match output {
                 TagRowOutput::Toggle(tag_id) => AppMsg::TagToggled(tag_id),
                 TagRowOutput::Rename(tag_id, new_title) => AppMsg::TagRenamed(tag_id, new_title),
-                TagRowOutput::Delete(tag_id) => AppMsg::DeleteFocusedTag,
             });
 
         let unpinned_tags = FactoryVecDeque::builder()
@@ -352,7 +349,6 @@ impl SimpleComponent for App {
             .forward(sender.input_sender(), |output| match output {
                 TagRowOutput::Toggle(tag_id) => AppMsg::TagToggled(tag_id),
                 TagRowOutput::Rename(tag_id, new_title) => AppMsg::TagRenamed(tag_id, new_title),
-                TagRowOutput::Delete(tag_id) => AppMsg::DeleteFocusedTag,
             });
 
         let toast_overlay = adw::ToastOverlay::new();
@@ -397,11 +393,35 @@ impl SimpleComponent for App {
         model.sort_direction_button = widgets.sort_direction_button.clone();
         model.tag_filter_button = widgets.tag_filter_button.clone();
 
+        let bms = model.bookmarks.widget().clone();
+        let pinned_tags = model.pinned_tags.widget().clone();
+        let unpinned_tags = model.unpinned_tags.widget().clone();
+
         let key_controller = gtk::EventControllerKey::new();
         let sender_clone = sender.clone();
+        let window_clone = model.window.clone();
         key_controller.connect_key_pressed(move |_, key, _keycode, state| {
             use gtk::gdk::Key;
             use gtk::gdk::ModifierType;
+
+            let focused_is_bookmark_row = || -> bool {
+                if let Some(focused) = gtk::prelude::RootExt::focus(&window_clone) {
+                    let focused_widget = focused.upcast_ref::<gtk::Widget>();
+                    let bms_widget = bms.upcast_ref::<gtk::Widget>();
+                    if focused_widget == bms_widget || focused_widget.is_ancestor(bms_widget) {
+                        if let Some(row) = focused_widget
+                            .ancestor(gtk::ListBoxRow::static_type())
+                            .and_downcast::<gtk::ListBoxRow>()
+                        {
+                            let row_widget = row.upcast_ref::<gtk::Widget>();
+                            return row_widget.is_ancestor(bms_widget)
+                                || row_widget.parent().as_ref() == Some(bms_widget);
+                        }
+                    }
+                }
+                false
+            };
+
             let ctrl = state.contains(ModifierType::CONTROL_MASK);
             match (key, ctrl) {
                 (Key::j | Key::n, true) => {
@@ -433,11 +453,19 @@ impl SimpleComponent for App {
                     gtk::glib::Propagation::Stop
                 }
                 (Key::e, true) => {
-                    sender_clone.input(AppMsg::EditFocusedTag);
+                    if focused_is_bookmark_row() {
+                        sender_clone.input(AppMsg::EditFocusedBookmark);
+                    } else {
+                        sender_clone.input(AppMsg::EditFocusedTag);
+                    }
                     gtk::glib::Propagation::Stop
                 }
                 (Key::d, true) => {
-                    sender_clone.input(AppMsg::DeleteFocusedTag);
+                    if focused_is_bookmark_row() {
+                        sender_clone.input(AppMsg::DeleteFocusedBookmark);
+                    } else {
+                        sender_clone.input(AppMsg::DeleteFocusedTag);
+                    }
                     gtk::glib::Propagation::Stop
                 }
                 _ => gtk::glib::Propagation::Proceed,
@@ -945,6 +973,8 @@ impl SimpleComponent for App {
 
                     let pinned_widget = self.pinned_tags.widget().clone();
                     let unpinned_widget = self.unpinned_tags.widget().clone();
+                    let bms = self.bookmarks.widget().clone();
+                    let bms_widget = bms.upcast_ref::<gtk::Widget>();
 
                     // Check if a specific TagRow is focused to add the Edit hotkey
                     let mut focused_tag_id = None;
@@ -969,6 +999,23 @@ impl SimpleComponent for App {
                             let idx = row.index() as usize;
                             if let Some(tag_row) = self.unpinned_tags.guard().get(idx) {
                                 focused_tag_id = tag_row.tag.id;
+                            }
+                        }
+                    }
+
+                    // Check if a specific BookmarkRow is focused to add Edit/Delete hotkeys
+                    let mut focused_bookmark_id = None;
+                    if let Some(row) = focused_widget
+                        .ancestor(gtk::ListBoxRow::static_type())
+                        .and_downcast::<gtk::ListBoxRow>()
+                    {
+                        let row_widget = row.upcast_ref::<gtk::Widget>();
+                        if row_widget.is_ancestor(bms_widget)
+                            || row_widget.parent().as_ref() == Some(bms_widget)
+                        {
+                            let idx = row.index() as usize;
+                            if let Some(bookmark_row) = self.bookmarks.guard().get(idx) {
+                                focused_bookmark_id = bookmark_row.bookmark.id;
                             }
                         }
                     }
@@ -1007,18 +1054,32 @@ impl SimpleComponent for App {
                             .emit(HotkeyDisplayMsg::UpdateActions(actions));
                     } else {
                         let bm_search = self.bookmark_search_entry.upcast_ref::<gtk::Widget>();
-                        let bms = self.bookmarks.widget();
-                        let bms_widget = bms.upcast_ref::<gtk::Widget>();
                         if focused_widget == bm_search
                             || focused_widget.is_ancestor(bm_search)
                             || focused_widget == bms_widget
                             || focused_widget.is_ancestor(bms_widget)
                         {
-                            let actions = vec![HotkeyAction {
+                            let mut actions = vec![];
+
+                            if let Some(_) = focused_bookmark_id {
+                                actions.push(HotkeyAction {
+                                    id: 4,
+                                    label: "Edit bookmark".to_string(),
+                                    accelerator: "<Ctrl>e".to_string(),
+                                });
+                                actions.push(HotkeyAction {
+                                    id: 5,
+                                    label: "Delete bookmark".to_string(),
+                                    accelerator: "<Ctrl>d".to_string(),
+                                });
+                            }
+
+                            actions.push(HotkeyAction {
                                 id: 1,
                                 label: "Search tags".to_string(),
                                 accelerator: "<Ctrl>h".to_string(),
-                            }];
+                            });
+
                             self.hotkey_display
                                 .emit(HotkeyDisplayMsg::UpdateActions(actions));
                         }
@@ -1265,6 +1326,14 @@ impl SimpleComponent for App {
                         // Delete tag
                         _sender.input(AppMsg::DeleteFocusedTag);
                     }
+                    4 => {
+                        // Edit bookmark
+                        _sender.input(AppMsg::EditFocusedBookmark);
+                    }
+                    5 => {
+                        // Delete bookmark
+                        _sender.input(AppMsg::DeleteFocusedBookmark);
+                    }
                     _ => {
                         eprintln!("Unknown hotkey action ID: {}", id);
                     }
@@ -1374,6 +1443,56 @@ impl SimpleComponent for App {
                                             self.toast_overlay.add_toast(toast);
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            AppMsg::EditFocusedBookmark => { // TODO: refactor with focused_is_bookmark_row
+                let window = self.window.clone();
+                let bms = self.bookmarks.widget();
+                let bms_widget = bms.upcast_ref::<gtk::Widget>();
+
+                if let Some(focused) = gtk::prelude::RootExt::focus(&window) {
+                    if let Some(row) = focused
+                        .ancestor(gtk::ListBoxRow::static_type())
+                        .and_downcast::<gtk::ListBoxRow>()
+                    {
+                        let row_widget = row.upcast_ref::<gtk::Widget>();
+                        if row_widget.is_ancestor(bms_widget)
+                            || row_widget.parent().as_ref() == Some(bms_widget)
+                        {
+                            let idx = row.index() as usize;
+                            if let Some(bookmark_row) = self.bookmarks.guard().get(idx) {
+                                if let Some(id) = bookmark_row.bookmark.id {
+                                    _sender.input(AppMsg::EditBookmark(id));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            AppMsg::DeleteFocusedBookmark => {
+                let window = self.window.clone();
+                let bms = self.bookmarks.widget();
+                let bms_widget = bms.upcast_ref::<gtk::Widget>();
+
+                if let Some(focused) = gtk::prelude::RootExt::focus(&window) {
+                    if let Some(row) = focused
+                        .ancestor(gtk::ListBoxRow::static_type())
+                        .and_downcast::<gtk::ListBoxRow>()
+                    {
+                        let row_widget = row.upcast_ref::<gtk::Widget>();
+                        if row_widget.is_ancestor(bms_widget)
+                            || row_widget.parent().as_ref() == Some(bms_widget)
+                        {
+                            let idx = row.index() as usize;
+                            if let Some(bookmark_row) = self.bookmarks.guard().get(idx) {
+                                if let Some(id) = bookmark_row.bookmark.id {
+                                    _sender.input(AppMsg::DeleteBookmark(id));
                                 }
                             }
                         }

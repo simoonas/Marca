@@ -32,7 +32,6 @@ pub enum TagRowMsg {
 pub enum TagRowOutput {
     Toggle(i64),         // tag_id
     Rename(i64, String), // tag_id, new_title
-    Delete(i64),         // tag_id
 }
 
 #[relm4::factory(pub)]
