@@ -1,6 +1,6 @@
 use crate::db::models::{SortDirection, SortField, TagFilterMode, UNTAGGED_TAG_ID};
 use crate::db::{Bookmark, BookmarkWithTags, Tag};
-use rusqlite::{params, Connection, OptionalExtension, Result};
+use rusqlite::{Connection, OptionalExtension, Result, params};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn insert_bookmark(conn: &Connection, bookmark: &Bookmark) -> Result<i64> {
@@ -182,10 +182,10 @@ pub fn search_bookmarks(
         };
 
         if tag_ids.is_empty() {
-            let query_str = format!(
-                "SELECT DISTINCT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
-                 FROM bookmarks b
-                 JOIN bookmarks_fts fts ON b.id = fts.rowid
+            let query_str = format!(// TODO: skip content
+                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
+                 FROM bookmarks_fts fts
+                 JOIN bookmarks b ON b.id = fts.rowid
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
                  WHERE bookmarks_fts MATCH ?1 AND b.deleted = 0
                  {}",
@@ -202,13 +202,30 @@ pub fn search_bookmarks(
             }
         } else if has_untagged && regular_tag_ids.is_empty() {
             // Only untagged is selected: show bookmarks with no tags
-            let query_str = format!(
-                "SELECT DISTINCT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
+            // potentially faster to scan FTS first:
+            // WITH fts_results AS (
+            //   SELECT rowid FROM bookmarks_fts WHERE bookmarks_fts MATCH ?1
+            // )
+            // SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
+            // FROM fts_results
+            // CROSS JOIN bookmarks b ON b.id = fts_results.rowid  -- CROSS JOIN forces order
+            // LEFT JOIN favicons f ON b.favicon_hash = f.hash
+            // WHERE b.deleted = 0
+            //   AND NOT EXISTS (
+            //       SELECT 1 FROM bookmark_tags bt
+            //       WHERE bt.bookmark_id = b.id
+            //   );
+            let query_str = format!(// TODO: skip content
+                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
                  FROM bookmarks b
                  JOIN bookmarks_fts fts ON b.id = fts.rowid
-                 LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
-                 WHERE bookmarks_fts MATCH ?1 AND bt.tag_id IS NULL AND b.deleted = 0
+                 WHERE bookmarks_fts MATCH ?1
+                    AND NOT EXISTS (
+                        SELECT 1 FROM bookmark_tags bt
+                        WHERE bt.bookmark_id = b.id
+                    )
+                    AND b.deleted = 0
                  {}",
                 order_clause
             );
@@ -224,12 +241,16 @@ pub fn search_bookmarks(
             // Untagged + other tags: match bookmarks with any selected tags OR no tags (Any mode only)
             let regular_tag_ids_json = serde_json::to_string(&regular_tag_ids).unwrap();
             let query_str = format!(
-                "SELECT DISTINCT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
+                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
                  FROM bookmarks b
                  JOIN bookmarks_fts fts ON b.id = fts.rowid
                  LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
-                 WHERE bookmarks_fts MATCH ?1 AND (bt.tag_id IS NULL OR bt.tag_id IN (SELECT value FROM json_each(?2))) AND b.deleted = 0
+                 WHERE bookmarks_fts MATCH ?1
+                    AND (NOT EXISTS
+                            (SELECT 1 FROM bookmark_tags bt
+                            WHERE bt.bookmark_id = b.id)
+                    OR bt.tag_id IN (SELECT value FROM json_each(?2))) AND b.deleted = 0
                  GROUP BY b.id
                  {}",
                 order_clause
@@ -249,11 +270,11 @@ pub fn search_bookmarks(
             // Regular tags only (no untagged)
             let tag_ids_json = serde_json::to_string(&regular_tag_ids).unwrap();
             let having_clause = match tag_filter_mode {
-                TagFilterMode::All => "HAVING COUNT(DISTINCT bt.tag_id) = ?3",
-                TagFilterMode::Any => "HAVING COUNT(DISTINCT bt.tag_id) >= 1",
+                TagFilterMode::All => "HAVING COUNT(bt.tag_id) = ?3",
+                TagFilterMode::Any => "HAVING COUNT(bt.tag_id) >= 1",
             };
             let query_str = format!(
-                "SELECT DISTINCT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
+                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
                  FROM bookmarks b
                  JOIN bookmarks_fts fts ON b.id = fts.rowid
                  JOIN bookmark_tags bt ON b.id = bt.bookmark_id
@@ -292,11 +313,13 @@ pub fn search_bookmarks(
         if has_untagged && regular_tag_ids.is_empty() {
             // Only untagged is selected: show bookmarks with no tags
             let query_str = format!(
-                "SELECT DISTINCT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
+                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
                  FROM bookmarks b
-                 LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
-                 WHERE bt.tag_id IS NULL AND b.deleted = 0
+                 WHERE NOT EXISTS (
+                        SELECT 1 FROM bookmark_tags bt
+                        WHERE bt.bookmark_id = b.id)
+                 AND b.deleted = 0
                  {}",
                 order_clause
             );
@@ -312,11 +335,17 @@ pub fn search_bookmarks(
             // Untagged + other tags: match bookmarks with any selected tags OR no tags (Any mode only)
             let regular_tag_ids_json = serde_json::to_string(&regular_tag_ids).unwrap();
             let query_str = format!(
-                "SELECT DISTINCT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
+                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
                  FROM bookmarks b
                  LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
-                 WHERE (bt.tag_id IS NULL OR bt.tag_id IN (SELECT value FROM json_each(?1))) AND b.deleted = 0
+                 WHERE (
+                    NOT EXISTS (
+                        SELECT 1 FROM bookmark_tags bt
+                        WHERE bt.bookmark_id = b.id
+                    )
+                    OR bt.tag_id IN (SELECT value FROM json_each(?1)))
+                    AND b.deleted = 0
                  GROUP BY b.id
                  {}",
                 order_clause
@@ -334,11 +363,11 @@ pub fn search_bookmarks(
             // Regular tags only (no untagged)
             let tag_ids_json = serde_json::to_string(&regular_tag_ids).unwrap();
             let having_clause = match tag_filter_mode {
-                TagFilterMode::All => "HAVING COUNT(DISTINCT bt.tag_id) = ?2",
-                TagFilterMode::Any => "HAVING COUNT(DISTINCT bt.tag_id) >= 1",
+                TagFilterMode::All => "HAVING COUNT(bt.tag_id) = ?2",
+                TagFilterMode::Any => "HAVING COUNT(bt.tag_id) >= 1",
             };
             let query_str = format!(
-                "SELECT DISTINCT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
+                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
                  FROM bookmarks b
                  JOIN bookmark_tags bt ON b.id = bt.bookmark_id
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash

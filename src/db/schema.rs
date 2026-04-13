@@ -46,8 +46,10 @@ CREATE VIRTUAL TABLE IF NOT EXISTS bookmarks_fts USING fts5(
 pub const CREATE_INDEXES: &[&str] = &[
     "CREATE INDEX IF NOT EXISTS idx_bookmark_tags_bookmark ON bookmark_tags(bookmark_id)",
     "CREATE INDEX IF NOT EXISTS idx_bookmark_tags_tag ON bookmark_tags(tag_id)",
+    "CREATE INDEX IF NOT EXISTS idx_bookmark_tags_tag_bookmark ON bookmark_tags(tag_id, bookmark_id)",
     "CREATE INDEX IF NOT EXISTS idx_bookmarks_created ON bookmarks(created DESC)",
     "CREATE INDEX IF NOT EXISTS idx_bookmarks_changed ON bookmarks(changed DESC)",
+    "CREATE INDEX IF NOT EXISTS idx_bookmarks_deleted ON bookmarks(deleted)",
     "CREATE INDEX IF NOT EXISTS idx_bookmarks_favicon_hash ON bookmarks(favicon_hash)",
 ];
 
@@ -65,6 +67,7 @@ pub const CREATE_TRIGGERS: &[&str] = &[
         WHERE rowid = new.id;
     END",
 ];
+// TODO:
 // CREATE TRIGGER cleanup_unused_tags
 // AFTER DELETE/UPDATE ON bookmark_tags
 // BEGIN
