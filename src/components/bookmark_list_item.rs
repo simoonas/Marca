@@ -4,8 +4,8 @@ use adw::gtk;
 use adw::gtk::gdk;
 use adw::gtk::gdk::gdk_pixbuf;
 use adw::gtk::prelude::*;
-use relm4::typed_view::list::RelmListItem;
 use relm4::RelmWidgetExt;
+use relm4::typed_view::list::RelmListItem;
 use std::io::Cursor;
 
 /// Data for a single bookmark in the virtualized list
@@ -61,10 +61,7 @@ impl RelmListItem for BookmarkListItem {
     fn setup(_list_item: &gtk::ListItem) -> (Self::Root, Self::Widgets) {
         let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
         root.add_css_class("card");
-        root.set_margin_top(3);
-        root.set_margin_bottom(3);
-        root.set_margin_start(0);
-        root.set_margin_end(0);
+        // Margins handled by CSS for listview > row
 
         let main_box = gtk::Box::new(gtk::Orientation::Horizontal, 8);
         main_box.set_margin_all(8);
@@ -167,6 +164,7 @@ impl RelmListItem for BookmarkListItem {
                     let badge = gtk::Label::new(Some(&format!("#{}", tag.title)));
                     badge.add_css_class("tag-badge");
                     badge.add_css_class("accent");
+                    badge.add_css_class("monospace");
                     badge.set_margin_start(2);
                     badge.set_margin_end(2);
                     widgets.tags_box.append(&badge);

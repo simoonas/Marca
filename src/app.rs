@@ -1,7 +1,7 @@
 use crate::components::{
-    BookmarkEditDialog, BookmarkEditInit, BookmarkEditOutput,
-    BookmarkListItem, HotkeyAction, HotkeyDisplay, HotkeyDisplayMsg, HotkeyDisplayOutput,
-    SettingsDialog, SettingsOutput, TagRow, TagRowOutput,
+    BookmarkEditDialog, BookmarkEditInit, BookmarkEditOutput, BookmarkListItem, HotkeyAction,
+    HotkeyDisplay, HotkeyDisplayMsg, HotkeyDisplayOutput, SettingsDialog, SettingsOutput, TagRow,
+    TagRowOutput,
 };
 use crate::db::Database;
 use crate::db::models::{SortDirection, SortField, TagFilterMode, UNTAGGED_TAG_ID};
@@ -51,6 +51,7 @@ pub enum AppMsg {
     ClearPinnedTags,
     RefreshBookmarks,
     RefreshTags,
+    ActivateBookmark(u32),
     OpenBookmark(String),
     CreateBookmark,
     EditBookmark(i64),
@@ -328,16 +329,16 @@ impl SimpleComponent for App {
 
         // Initialize the virtualized bookmark list
         let bookmarks = TypedListView::<BookmarkListItem, gtk::SingleSelection>::new();
-        
-        // Set up the ListView styling
-        bookmarks.view.set_margin_top(12);
-        bookmarks.view.set_margin_bottom(12);
-        bookmarks.view.set_margin_start(12);
-        bookmarks.view.set_margin_end(12);
+
+        // Set up the ListView styling (no margins - spacing handled by row CSS)
         bookmarks.view.add_css_class("background");
 
-        // Note: activate signal will be handled through hotkey navigation or double-click
-        // We'll rely on Edit/Open handlers for now
+        bookmarks.view.connect_activate({
+            let sender = sender.clone();
+            move |_, pos| {
+                sender.input(AppMsg::ActivateBookmark(pos));
+            }
+        });
 
         // Initialize factories for pinned and unpinned tags
         let pinned_tags = FactoryVecDeque::builder()
@@ -480,7 +481,9 @@ impl SimpleComponent for App {
              .untagged-tag-label { font-style: italic; }
              .hotkey-shortcut { font-size: 0.8em; padding: 0; margin: 0; }
              actionbar > revealer { min-height: 0; }
-             actionbar > box { min-height: 0; padding: 0; }",
+            listview > row { margin-top: 2px; margin-bottom: 1px; margin-left: 9px; margin-right: 9px; }
+             listview > row:selected { background-color: rgba(120, 120, 120, 0.1); border-radius: 8px; }
+             listview > row:focus { border-radius: 8px; outline: 2px solid @accent_color; outline-offset: -2px; }",
         );
         gtk::style_context_add_provider_for_display(
             &adw::prelude::WidgetExt::display(&root),
@@ -648,19 +651,28 @@ impl SimpleComponent for App {
                     Ok(bookmarks) => {
                         // Hide the ListView to batch layout updates
                         self.bookmarks.view.set_visible(false);
-                        
+
                         // Convert to BookmarkListItem and bulk load
                         self.bookmarks.clear();
                         self.bookmarks.extend_from_iter(
-                            bookmarks.into_iter().map(BookmarkListItem::from_bookmark_with_tags)
+                            bookmarks
+                                .into_iter()
+                                .map(BookmarkListItem::from_bookmark_with_tags),
                         );
-                        
+
                         // Show the ListView again, forcing a single layout pass
                         self.bookmarks.view.set_visible(true);
                     }
                     Err(e) => {
                         eprintln!("Error loading bookmarks: {}", e);
                     }
+                }
+            }
+
+            AppMsg::ActivateBookmark(pos) => {
+                if let Some(item) = self.bookmarks.get_visible(pos) {
+                    let bookmark_ref: std::cell::Ref<'_, BookmarkListItem> = item.borrow();
+                    _sender.input(AppMsg::OpenBookmark(bookmark_ref.bookmark.url.clone()));
                 }
             }
 
@@ -968,7 +980,7 @@ impl SimpleComponent for App {
                 }
             }
 
-             AppMsg::FocusChanged => {
+            AppMsg::FocusChanged => {
                 if let Some(focused) = gtk::prelude::RootExt::focus(&self.window) {
                     let focused_widget = focused.upcast_ref::<gtk::Widget>();
                     let tag_search = self.tag_search_entry.upcast_ref::<gtk::Widget>();
@@ -1015,7 +1027,8 @@ impl SimpleComponent for App {
                             let selected = self.bookmarks.selection_model.selected();
                             if selected != gtk::INVALID_LIST_POSITION {
                                 if let Some(item) = self.bookmarks.get_visible(selected) {
-                                    let bookmark_ref: std::cell::Ref<'_, BookmarkListItem> = item.borrow();
+                                    let bookmark_ref: std::cell::Ref<'_, BookmarkListItem> =
+                                        item.borrow();
                                     focused_bookmark_id = bookmark_ref.bookmark.id;
                                 }
                             }
@@ -1121,8 +1134,39 @@ impl SimpleComponent for App {
                     } else if is_bm_search {
                         // For ListView, select the first item
                         if self.bookmarks.selection_model.n_items() > 0 {
-                            self.bookmarks.selection_model.select_item(0, false);
+                            self.bookmarks.view.scroll_to(
+                                0,
+                                gtk::ListScrollFlags::FOCUS | gtk::ListScrollFlags::SELECT,
+                                None,
+                            );
+                            self.bookmarks.view.grab_focus();
                         }
+                    } else if focused_widget
+                        .is_ancestor(self.bookmarks.view.upcast_ref::<gtk::Widget>())
+                    {
+                        // Already in bookmark list, navigate to next
+                        let selected = self.bookmarks.selection_model.selected();
+                        if selected != gtk::INVALID_LIST_POSITION {
+                            let n_items = self.bookmarks.selection_model.n_items();
+                            let new_idx = if selected + 1 < n_items {
+                                selected + 1
+                            } else {
+                                0
+                            };
+                            self.bookmarks.view.scroll_to(
+                                new_idx,
+                                gtk::ListScrollFlags::FOCUS | gtk::ListScrollFlags::SELECT,
+                                None,
+                            );
+                        } else if self.bookmarks.selection_model.n_items() > 0 {
+                            // No selection yet, pick first
+                            self.bookmarks.view.scroll_to(
+                                0,
+                                gtk::ListScrollFlags::FOCUS | gtk::ListScrollFlags::SELECT,
+                                None,
+                            );
+                        }
+                        self.bookmarks.view.grab_focus();
                     } else if let Some(row) = focused
                         .ancestor(gtk::ListBoxRow::static_type())
                         .and_downcast::<gtk::ListBoxRow>()
@@ -1156,18 +1200,6 @@ impl SimpleComponent for App {
                             {
                                 first.grab_focus();
                             }
-                        } else if row_widget
-                            .is_ancestor(self.bookmarks.view.upcast_ref::<gtk::Widget>())
-                        {
-                            let selected = self.bookmarks.selection_model.selected();
-                            if selected != gtk::INVALID_LIST_POSITION {
-                                let n_items = self.bookmarks.selection_model.n_items();
-                                if selected + 1 < n_items {
-                                    self.bookmarks.selection_model.select_item(selected + 1, false);
-                                } else {
-                                    self.bookmarks.selection_model.select_item(0, false);
-                                }
-                            }
                         }
                     }
                 }
@@ -1175,7 +1207,29 @@ impl SimpleComponent for App {
 
             AppMsg::NavigatePrev => {
                 if let Some(focused) = gtk::prelude::RootExt::focus(&self.window) {
-                    if let Some(row) = focused
+                    let focused_widget = focused.upcast_ref::<gtk::Widget>();
+
+                    // Check if in bookmark list first
+                    if focused_widget.is_ancestor(self.bookmarks.view.upcast_ref::<gtk::Widget>()) {
+                        let selected = self.bookmarks.selection_model.selected();
+                        if selected != gtk::INVALID_LIST_POSITION && selected > 0 {
+                            let new_idx = selected - 1;
+                            self.bookmarks.view.scroll_to(
+                                new_idx,
+                                gtk::ListScrollFlags::FOCUS | gtk::ListScrollFlags::SELECT,
+                                None,
+                            );
+                        } else if selected == 0 && self.bookmarks.selection_model.n_items() > 0 {
+                            // at first bookmark, wrap to last
+                            let last_idx = self.bookmarks.selection_model.n_items() - 1;
+                            self.bookmarks.view.scroll_to(
+                                last_idx,
+                                gtk::ListScrollFlags::FOCUS | gtk::ListScrollFlags::SELECT,
+                                None,
+                            );
+                        }
+                        self.bookmarks.view.grab_focus();
+                    } else if let Some(row) = focused
                         .ancestor(gtk::ListBoxRow::static_type())
                         .and_downcast::<gtk::ListBoxRow>()
                     {
@@ -1234,17 +1288,6 @@ impl SimpleComponent for App {
                                         last.grab_focus();
                                     }
                                 }
-                            }
-                        } else if row_widget
-                            .is_ancestor(self.bookmarks.view.upcast_ref::<gtk::Widget>())
-                        {
-                            let selected = self.bookmarks.selection_model.selected();
-                            if selected != gtk::INVALID_LIST_POSITION && selected > 0 {
-                                self.bookmarks.selection_model.select_item(selected - 1, false);
-                            } else if selected == 0 && self.bookmarks.selection_model.n_items() > 0 {
-                                // at first bookmark, wrap to last
-                                let last_idx = self.bookmarks.selection_model.n_items() - 1;
-                                self.bookmarks.selection_model.select_item(last_idx, false);
                             }
                         }
                     }
@@ -1456,7 +1499,8 @@ impl SimpleComponent for App {
                         let selected = self.bookmarks.selection_model.selected();
                         if selected != gtk::INVALID_LIST_POSITION {
                             if let Some(item) = self.bookmarks.get_visible(selected) {
-                                let bookmark_ref: std::cell::Ref<'_, BookmarkListItem> = item.borrow();
+                                let bookmark_ref: std::cell::Ref<'_, BookmarkListItem> =
+                                    item.borrow();
                                 if let Some(id) = bookmark_ref.bookmark.id {
                                     _sender.input(AppMsg::EditBookmark(id));
                                 }
@@ -1476,7 +1520,8 @@ impl SimpleComponent for App {
                         let selected = self.bookmarks.selection_model.selected();
                         if selected != gtk::INVALID_LIST_POSITION {
                             if let Some(item) = self.bookmarks.get_visible(selected) {
-                                let bookmark_ref: std::cell::Ref<'_, BookmarkListItem> = item.borrow();
+                                let bookmark_ref: std::cell::Ref<'_, BookmarkListItem> =
+                                    item.borrow();
                                 if let Some(id) = bookmark_ref.bookmark.id {
                                     _sender.input(AppMsg::DeleteBookmark(id));
                                 }

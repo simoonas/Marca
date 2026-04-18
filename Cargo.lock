@@ -1313,6 +1313,7 @@ version = "0.1.0"
 dependencies = [
  "dirs",
  "gdk-pixbuf 0.20.10",
+ "gtk4",
  "libadwaita",
  "murmur3",
  "readability",

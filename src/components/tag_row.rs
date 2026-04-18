@@ -8,6 +8,7 @@ pub struct TagRow {
     pub tag: Tag,
     is_pinned: bool,
     pub is_editing: bool,
+    is_hovered: bool,
 }
 
 impl TagRow {
@@ -23,6 +24,8 @@ impl TagRow {
 #[derive(Debug)]
 pub enum TagRowMsg {
     Clicked,
+    HoverEnter,
+    HoverLeave,
     StartEdit,
     SubmitEdit(String),
     CancelEdit,
@@ -48,17 +51,27 @@ impl FactoryComponent for TagRow {
 
             #[watch]
             #[block_signal(activate_handler)]
-            set_css_classes: if self.tag.id == Some(UNTAGGED_TAG_ID) {
-                &["untagged-tag"]
-            } else if self.is_pinned {
-                &["accent-bg-color"]
-            } else {
-                &[]
-            },
+            set_class_active: ("accent", self.is_hovered),
+            set_class_active: ("untagged-tag", self.tag.id == Some(UNTAGGED_TAG_ID)),
 
             connect_activate[sender] => move |_| {
                 sender.input(TagRowMsg::Clicked);
             } @activate_handler,
+
+            add_controller = gtk::GestureClick {
+                connect_pressed[sender] => move |_, _, _, _| {
+                    sender.input(TagRowMsg::Clicked);
+                }
+            },
+
+            add_controller = gtk::EventControllerMotion {
+                connect_enter[sender] => move |_, _, _| {
+                    sender.input(TagRowMsg::HoverEnter);
+                },
+                connect_leave[sender] => move |_| {
+                    sender.input(TagRowMsg::HoverLeave);
+                }
+            },
 
             gtk::Box {
                 set_orientation: gtk::Orientation::Horizontal,
@@ -73,12 +86,7 @@ impl FactoryComponent for TagRow {
                     set_visible: !self.is_editing,
                     set_halign: gtk::Align::Start,
                     set_hexpand: true,
-                    #[watch]
-                    set_css_classes: if self.tag.id == Some(UNTAGGED_TAG_ID) {
-                        &["untagged-tag-label"]
-                    } else {
-                        &[]
-                    },
+                    set_css_classes: &["monospace"],
                 },
 
                 #[name = "entry"]
@@ -124,6 +132,7 @@ impl FactoryComponent for TagRow {
             tag: init.0,
             is_pinned: init.1,
             is_editing: false,
+            is_hovered: false,
         }
     }
 
@@ -135,6 +144,12 @@ impl FactoryComponent for TagRow {
                         let _ = sender.output(TagRowOutput::Toggle(tag_id));
                     }
                 }
+            }
+            TagRowMsg::HoverEnter => {
+                self.is_hovered = true;
+            }
+            TagRowMsg::HoverLeave => {
+                self.is_hovered = false;
             }
             TagRowMsg::StartEdit => {
                 if self.tag.id != Some(UNTAGGED_TAG_ID) {
