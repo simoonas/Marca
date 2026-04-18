@@ -1,6 +1,6 @@
 use crate::db::models::{SortDirection, SortField, TagFilterMode, UNTAGGED_TAG_ID};
 use crate::db::{Bookmark, BookmarkWithTags, Tag};
-use rusqlite::{Connection, OptionalExtension, Result, params};
+use rusqlite::{params, Connection, OptionalExtension, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn insert_bookmark(conn: &Connection, bookmark: &Bookmark) -> Result<i64> {
@@ -50,7 +50,29 @@ pub fn add_tag_to_bookmark(conn: &Connection, bookmark_id: i64, tag_id: i64) -> 
     Ok(())
 }
 
-fn map_bookmark_with_favicon(row: &rusqlite::Row) -> Result<(Bookmark, Option<Vec<u8>>)> {
+fn parse_tags_from_concat(tags_concat: Option<String>) -> Vec<Tag> {
+    match tags_concat {
+        None => Vec::new(),
+        Some(s) if s.is_empty() => Vec::new(),
+        Some(s) => s
+            .split(',')
+            .filter_map(|pair| {
+                let mut parts = pair.split('|');
+                match (parts.next(), parts.next()) {
+                    (Some(id_str), Some(title)) => id_str.parse::<i64>().ok().map(|id| Tag {
+                        id: Some(id),
+                        title: title.to_string(),
+                    }),
+                    _ => None,
+                }
+            })
+            .collect(),
+    }
+}
+
+fn map_bookmark_with_favicon_and_tags(
+    row: &rusqlite::Row,
+) -> Result<(Bookmark, Option<Vec<u8>>, Vec<Tag>)> {
     let bookmark = Bookmark {
         id: Some(row.get(0)?),
         title: row.get(1)?,
@@ -62,21 +84,9 @@ fn map_bookmark_with_favicon(row: &rusqlite::Row) -> Result<(Bookmark, Option<Ve
         favicon_hash: row.get(8)?,
     };
     let favicon_data: Option<Vec<u8>> = row.get(7)?;
-    Ok((bookmark, favicon_data))
-}
-
-fn load_bookmark_with_tags(
-    conn: &Connection,
-    bookmark: Bookmark,
-    favicon_data: Option<Vec<u8>>,
-) -> Result<BookmarkWithTags> {
-    let bookmark_id = bookmark.id.unwrap();
-    let tags = get_tags_for_bookmark(conn, bookmark_id)?;
-    Ok(BookmarkWithTags {
-        bookmark,
-        tags,
-        favicon_data,
-    })
+    let tags_concat: Option<String> = row.get(9)?;
+    let tags = parse_tags_from_concat(tags_concat);
+    Ok((bookmark, favicon_data, tags))
 }
 
 pub fn get_all_bookmarks(
@@ -91,22 +101,30 @@ pub fn get_all_bookmarks(
     );
 
     let query = format!(
-        "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
+        "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
+                GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
          FROM bookmarks b
          LEFT JOIN favicons f ON b.favicon_hash = f.hash
+         LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
+         LEFT JOIN tags t ON bt.tag_id = t.id
          WHERE b.deleted = 0
+         GROUP BY b.id
          {}",
         order_clause
     );
 
     let mut stmt = conn.prepare(&query)?;
 
-    let bookmark_iter = stmt.query_map([], map_bookmark_with_favicon)?;
+    let bookmark_iter = stmt.query_map([], map_bookmark_with_favicon_and_tags)?;
 
     let mut results = Vec::new();
     for result in bookmark_iter {
-        let (bookmark, favicon_data) = result?;
-        results.push(load_bookmark_with_tags(conn, bookmark, favicon_data)?);
+        let (bookmark, favicon_data, tags) = result?;
+        results.push(BookmarkWithTags {
+            bookmark,
+            tags,
+            favicon_data,
+        });
     }
 
     Ok(results)
@@ -116,24 +134,6 @@ pub fn get_all_tags(conn: &Connection) -> Result<Vec<Tag>> {
     let mut stmt = conn.prepare("SELECT id, title FROM tags ORDER BY title")?;
 
     let tag_iter = stmt.query_map([], |row| {
-        Ok(Tag {
-            id: Some(row.get(0)?),
-            title: row.get(1)?,
-        })
-    })?;
-
-    tag_iter.collect()
-}
-
-fn get_tags_for_bookmark(conn: &Connection, bookmark_id: i64) -> Result<Vec<Tag>> {
-    let mut stmt = conn.prepare(
-        "SELECT t.id, t.title FROM tags t
-         JOIN bookmark_tags bt ON t.id = bt.tag_id
-         WHERE bt.bookmark_id = ?1
-         ORDER BY t.title",
-    )?;
-
-    let tag_iter = stmt.query_map(params![bookmark_id], |row| {
         Ok(Tag {
             id: Some(row.get(0)?),
             title: row.get(1)?,
@@ -183,69 +183,76 @@ pub fn search_bookmarks(
 
         if tag_ids.is_empty() {
             let query_str = format!(// TODO: skip content
-                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
+                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
+                        GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
                  FROM bookmarks_fts fts
                  JOIN bookmarks b ON b.id = fts.rowid
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
+                 LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
+                 LEFT JOIN tags t ON bt.tag_id = t.id
                  WHERE bookmarks_fts MATCH ?1 AND b.deleted = 0
+                 GROUP BY b.id
                  {}",
                 order_clause
             );
 
             let mut stmt = conn.prepare(&query_str)?;
 
-            let bookmark_iter = stmt.query_map(params![fts_query], map_bookmark_with_favicon)?;
+            let bookmark_iter =
+                stmt.query_map(params![fts_query], map_bookmark_with_favicon_and_tags)?;
 
             for result in bookmark_iter {
-                let (bookmark, favicon_data) = result?;
-                results.push(load_bookmark_with_tags(conn, bookmark, favicon_data)?);
+                let (bookmark, favicon_data, tags) = result?;
+                results.push(BookmarkWithTags {
+                    bookmark,
+                    tags,
+                    favicon_data,
+                });
             }
         } else if has_untagged && regular_tag_ids.is_empty() {
             // Only untagged is selected: show bookmarks with no tags
-            // potentially faster to scan FTS first:
-            // WITH fts_results AS (
-            //   SELECT rowid FROM bookmarks_fts WHERE bookmarks_fts MATCH ?1
-            // )
-            // SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
-            // FROM fts_results
-            // CROSS JOIN bookmarks b ON b.id = fts_results.rowid  -- CROSS JOIN forces order
-            // LEFT JOIN favicons f ON b.favicon_hash = f.hash
-            // WHERE b.deleted = 0
-            //   AND NOT EXISTS (
-            //       SELECT 1 FROM bookmark_tags bt
-            //       WHERE bt.bookmark_id = b.id
-            //   );
             let query_str = format!(// TODO: skip content
-                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
+                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
+                        GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
                  FROM bookmarks b
                  JOIN bookmarks_fts fts ON b.id = fts.rowid
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
+                 LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
+                 LEFT JOIN tags t ON bt.tag_id = t.id
                  WHERE bookmarks_fts MATCH ?1
                     AND NOT EXISTS (
                         SELECT 1 FROM bookmark_tags bt
                         WHERE bt.bookmark_id = b.id
                     )
                     AND b.deleted = 0
+                 GROUP BY b.id
                  {}",
                 order_clause
             );
 
             let mut stmt = conn.prepare(&query_str)?;
-            let bookmark_iter = stmt.query_map(params![fts_query], map_bookmark_with_favicon)?;
+            let bookmark_iter =
+                stmt.query_map(params![fts_query], map_bookmark_with_favicon_and_tags)?;
 
             for result in bookmark_iter {
-                let (bookmark, favicon_data) = result?;
-                results.push(load_bookmark_with_tags(conn, bookmark, favicon_data)?);
+                let (bookmark, favicon_data, tags) = result?;
+                results.push(BookmarkWithTags {
+                    bookmark,
+                    tags,
+                    favicon_data,
+                });
             }
         } else if has_untagged && !regular_tag_ids.is_empty() {
             // Untagged + other tags: match bookmarks with any selected tags OR no tags (Any mode only)
             let regular_tag_ids_json = serde_json::to_string(&regular_tag_ids).unwrap();
             let query_str = format!(
-                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
+                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
+                        GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
                  FROM bookmarks b
                  JOIN bookmarks_fts fts ON b.id = fts.rowid
                  LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
+                 LEFT JOIN tags t ON bt.tag_id = t.id
                  WHERE bookmarks_fts MATCH ?1
                     AND (NOT EXISTS
                             (SELECT 1 FROM bookmark_tags bt
@@ -259,12 +266,16 @@ pub fn search_bookmarks(
             let mut stmt = conn.prepare(&query_str)?;
             let bookmark_iter = stmt.query_map(
                 params![fts_query, regular_tag_ids_json],
-                map_bookmark_with_favicon,
+                map_bookmark_with_favicon_and_tags,
             )?;
 
             for result in bookmark_iter {
-                let (bookmark, favicon_data) = result?;
-                results.push(load_bookmark_with_tags(conn, bookmark, favicon_data)?);
+                let (bookmark, favicon_data, tags) = result?;
+                results.push(BookmarkWithTags {
+                    bookmark,
+                    tags,
+                    favicon_data,
+                });
             }
         } else {
             // Regular tags only (no untagged)
@@ -274,11 +285,13 @@ pub fn search_bookmarks(
                 TagFilterMode::Any => "HAVING COUNT(bt.tag_id) >= 1",
             };
             let query_str = format!(
-                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
+                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
+                        GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
                  FROM bookmarks b
                  JOIN bookmarks_fts fts ON b.id = fts.rowid
                  JOIN bookmark_tags bt ON b.id = bt.bookmark_id
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
+                 LEFT JOIN tags t ON bt.tag_id = t.id
                  WHERE bookmarks_fts MATCH ?1 AND bt.tag_id IN (SELECT value FROM json_each(?2)) AND b.deleted = 0
                  GROUP BY b.id
                  {}
@@ -292,15 +305,22 @@ pub fn search_bookmarks(
             let bookmark_iter = if tag_filter_mode == TagFilterMode::All {
                 stmt.query_map(
                     params![fts_query, tag_ids_json, regular_tag_ids.len()],
-                    map_bookmark_with_favicon,
+                    map_bookmark_with_favicon_and_tags,
                 )?
             } else {
-                stmt.query_map(params![fts_query, tag_ids_json], map_bookmark_with_favicon)?
+                stmt.query_map(
+                    params![fts_query, tag_ids_json],
+                    map_bookmark_with_favicon_and_tags,
+                )?
             };
 
             for result in bookmark_iter {
-                let (bookmark, favicon_data) = result?;
-                results.push(load_bookmark_with_tags(conn, bookmark, favicon_data)?);
+                let (bookmark, favicon_data, tags) = result?;
+                results.push(BookmarkWithTags {
+                    bookmark,
+                    tags,
+                    favicon_data,
+                });
             }
         }
     } else {
@@ -313,32 +333,42 @@ pub fn search_bookmarks(
         if has_untagged && regular_tag_ids.is_empty() {
             // Only untagged is selected: show bookmarks with no tags
             let query_str = format!(
-                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
+                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
+                        GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
                  FROM bookmarks b
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
+                 LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
+                 LEFT JOIN tags t ON bt.tag_id = t.id
                  WHERE NOT EXISTS (
                         SELECT 1 FROM bookmark_tags bt
                         WHERE bt.bookmark_id = b.id)
                  AND b.deleted = 0
+                 GROUP BY b.id
                  {}",
                 order_clause
             );
 
             let mut stmt = conn.prepare(&query_str)?;
-            let bookmark_iter = stmt.query_map([], map_bookmark_with_favicon)?;
+            let bookmark_iter = stmt.query_map([], map_bookmark_with_favicon_and_tags)?;
 
             for result in bookmark_iter {
-                let (bookmark, favicon_data) = result?;
-                results.push(load_bookmark_with_tags(conn, bookmark, favicon_data)?);
+                let (bookmark, favicon_data, tags) = result?;
+                results.push(BookmarkWithTags {
+                    bookmark,
+                    tags,
+                    favicon_data,
+                });
             }
         } else if has_untagged && !regular_tag_ids.is_empty() {
             // Untagged + other tags: match bookmarks with any selected tags OR no tags (Any mode only)
             let regular_tag_ids_json = serde_json::to_string(&regular_tag_ids).unwrap();
             let query_str = format!(
-                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
+                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
+                        GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
                  FROM bookmarks b
                  LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
+                 LEFT JOIN tags t ON bt.tag_id = t.id
                  WHERE (
                     NOT EXISTS (
                         SELECT 1 FROM bookmark_tags bt
@@ -352,12 +382,18 @@ pub fn search_bookmarks(
             );
 
             let mut stmt = conn.prepare(&query_str)?;
-            let bookmark_iter =
-                stmt.query_map(params![regular_tag_ids_json], map_bookmark_with_favicon)?;
+            let bookmark_iter = stmt.query_map(
+                params![regular_tag_ids_json],
+                map_bookmark_with_favicon_and_tags,
+            )?;
 
             for result in bookmark_iter {
-                let (bookmark, favicon_data) = result?;
-                results.push(load_bookmark_with_tags(conn, bookmark, favicon_data)?);
+                let (bookmark, favicon_data, tags) = result?;
+                results.push(BookmarkWithTags {
+                    bookmark,
+                    tags,
+                    favicon_data,
+                });
             }
         } else {
             // Regular tags only (no untagged)
@@ -367,10 +403,12 @@ pub fn search_bookmarks(
                 TagFilterMode::Any => "HAVING COUNT(bt.tag_id) >= 1",
             };
             let query_str = format!(
-                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
+                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
+                        GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
                  FROM bookmarks b
                  JOIN bookmark_tags bt ON b.id = bt.bookmark_id
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
+                 LEFT JOIN tags t ON bt.tag_id = t.id
                  WHERE bt.tag_id IN (SELECT value FROM json_each(?1)) AND b.deleted = 0
                  GROUP BY b.id
                  {}
@@ -384,15 +422,19 @@ pub fn search_bookmarks(
             let bookmark_iter = if tag_filter_mode == TagFilterMode::All {
                 stmt.query_map(
                     params![tag_ids_json, regular_tag_ids.len()],
-                    map_bookmark_with_favicon,
+                    map_bookmark_with_favicon_and_tags,
                 )?
             } else {
-                stmt.query_map(params![tag_ids_json], map_bookmark_with_favicon)?
+                stmt.query_map(params![tag_ids_json], map_bookmark_with_favicon_and_tags)?
             };
 
             for result in bookmark_iter {
-                let (bookmark, favicon_data) = result?;
-                results.push(load_bookmark_with_tags(conn, bookmark, favicon_data)?);
+                let (bookmark, favicon_data, tags) = result?;
+                results.push(BookmarkWithTags {
+                    bookmark,
+                    tags,
+                    favicon_data,
+                });
             }
         }
     }
@@ -480,16 +522,24 @@ pub fn restore_bookmark(conn: &Connection, id: i64) -> Result<()> {
 }
 
 pub fn get_bookmark_by_id(conn: &Connection, id: i64) -> Result<BookmarkWithTags> {
-    let (bookmark, favicon_data) = conn.query_row(
-        "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash
+    let (bookmark, favicon_data, tags) = conn.query_row(
+        "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
+                GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
          FROM bookmarks b
          LEFT JOIN favicons f ON b.favicon_hash = f.hash
-         WHERE b.id = ?1",
+         LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
+         LEFT JOIN tags t ON bt.tag_id = t.id
+         WHERE b.id = ?1
+         GROUP BY b.id",
         params![id],
-        map_bookmark_with_favicon,
+        map_bookmark_with_favicon_and_tags,
     )?;
 
-    load_bookmark_with_tags(conn, bookmark, favicon_data)
+    Ok(BookmarkWithTags {
+        bookmark,
+        tags,
+        favicon_data,
+    })
 }
 
 pub fn insert_favicon_if_new(conn: &Connection, hash: i32, data: &[u8]) -> Result<()> {

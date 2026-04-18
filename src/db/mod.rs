@@ -87,10 +87,6 @@ impl Database {
         &self.conn
     }
 
-    pub fn get_all_bookmarks(&self) -> Result<Vec<BookmarkWithTags>> {
-        queries::get_all_bookmarks(&self.conn, SortField::Created, SortDirection::Descending)
-    }
-
     pub fn get_all_bookmarks_with_sort(
         &self,
         sort_field: SortField,
@@ -101,21 +97,6 @@ impl Database {
 
     pub fn get_all_tags(&self) -> Result<Vec<Tag>> {
         queries::get_all_tags(&self.conn)
-    }
-
-    pub fn search_bookmarks(
-        &self,
-        query: Option<&str>,
-        tag_ids: &[i64],
-    ) -> Result<Vec<BookmarkWithTags>> {
-        queries::search_bookmarks(
-            &self.conn,
-            query,
-            tag_ids,
-            SortField::Created,
-            SortDirection::Descending,
-            TagFilterMode::All,
-        )
     }
 
     pub fn search_bookmarks_with_sort(
