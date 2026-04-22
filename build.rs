@@ -13,4 +13,13 @@ fn main() {
         // List of icons to include
         ["tag"],
     );
+
+    // Compile GSettings schemas for local development
+    println!("cargo:rerun-if-changed=data/com.marca.app.gschema.xml");
+    if let Err(e) = std::process::Command::new("glib-compile-schemas")
+        .arg("data")
+        .status()
+    {
+        println!("cargo:warning=Failed to compile GSettings schemas: {}", e);
+    }
 }

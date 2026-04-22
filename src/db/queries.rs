@@ -557,3 +557,19 @@ pub fn update_bookmark_favicon_hash(conn: &Connection, bookmark_id: i64, hash: i
     )?;
     Ok(())
 }
+
+pub fn gc_deleted_bookmarks(conn: &Connection, days: u32) -> Result<usize> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64;
+
+    let threshold = now - (days as i64 * 86400);
+
+    let count = conn.execute(
+        "DELETE FROM bookmarks WHERE deleted = 1 AND changed < ?1",
+        params![threshold],
+    )?;
+
+    Ok(count)
+}

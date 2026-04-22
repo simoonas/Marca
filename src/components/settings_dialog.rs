@@ -6,6 +6,8 @@ use relm4::prelude::*;
 pub struct SettingsDialog {
     importing: bool,
     root: adw::PreferencesDialog,
+    gc_days: u32,
+    settings: Option<gio::Settings>,
 }
 
 #[derive(Debug)]
@@ -13,6 +15,7 @@ pub enum SettingsMsg {
     ImportBookmarks,
     FileSelected(Option<std::path::PathBuf>),
     ImportComplete(Result<crate::db::ImportResult, String>),
+    SetGcDays(u32),
 }
 
 #[derive(Debug)]
@@ -38,20 +41,53 @@ impl SimpleComponent for SettingsDialog {
                 set_icon_name: Some("preferences-system-symbolic"),
 
                 add = &adw::PreferencesGroup {
-                    set_title: "Import",
-                    set_description: Some("Import bookmarks from other browsers"),
+                    set_title: "Data",
+                    set_description: Some("Note: if data is synced with other devices less often, deleted bookmarks may reappear"),
 
                     adw::ActionRow {
-                        set_title: "Import from HTML",
+                        set_title: "Clear deleted bookmarks after",
+
+                        add_suffix = &gtk::Box {
+                            set_spacing: 6,
+                            set_valign: gtk::Align::Center,
+
+                            append = &gtk::ToggleButton {
+                                set_label: "1d",
+                                #[watch]
+                                set_active: model.gc_days == 1,
+                                connect_clicked => SettingsMsg::SetGcDays(1),
+                            },
+                            append = &gtk::ToggleButton {
+                                set_label: "7d",
+                                #[watch]
+                                set_active: model.gc_days == 7,
+                                connect_clicked => SettingsMsg::SetGcDays(7),
+                            },
+                            append = &gtk::ToggleButton {
+                                set_label: "30d",
+                                #[watch]
+                                set_active: model.gc_days == 30,
+                                connect_clicked => SettingsMsg::SetGcDays(30),
+                            }
+                        }
+                    }
+                },
+
+                add = &adw::PreferencesGroup {
+                    set_title: "Import",
+                    set_description: Some("Import bookmarks from other apps"),
+
+                    adw::ActionRow {
+                        set_title: "Import from bookmarks.html",
                         set_subtitle: "Import bookmarks from a Netscape Bookmark Format file",
 
                         add_suffix = &gtk::Button {
-                            set_label: "Choose File...",
+                            set_label: "Choose File",
                             set_valign: gtk::Align::Center,
                             add_css_class: "flat",
                             #[watch]
                             set_sensitive: !model.importing,
-                            
+
                             connect_clicked => SettingsMsg::ImportBookmarks,
                         }
                     },
@@ -76,9 +112,22 @@ impl SimpleComponent for SettingsDialog {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
-        let model = SettingsDialog { 
+        let settings = if gio::SettingsSchemaSource::default()
+            .and_then(|source| source.lookup("com.marca.app", true))
+            .is_some()
+        {
+            Some(gio::Settings::new("com.marca.app"))
+        } else {
+            None
+        };
+
+        let gc_days = settings.as_ref().map(|s| s.int("gc-days")).unwrap_or(30);
+
+        let model = SettingsDialog {
             importing: false,
             root: root.clone(),
+            gc_days: gc_days as u32,
+            settings,
         };
 
         let widgets = view_output!();
@@ -91,7 +140,8 @@ impl SimpleComponent for SettingsDialog {
             SettingsMsg::ImportBookmarks => {
                 // Get parent window by finding the root widget
                 // The dialog will be parented to the main window when presented
-                let parent_window: Option<gtk::Window> = self.root
+                let parent_window: Option<gtk::Window> = self
+                    .root
                     .upcast_ref::<gtk::Widget>()
                     .root()
                     .and_then(|root| root.downcast::<gtk::Window>().ok());
@@ -197,7 +247,7 @@ impl SimpleComponent for SettingsDialog {
 
                 // Notify parent to refresh bookmarks
                 let _ = sender.output(SettingsOutput::RefreshBookmarks);
-                
+
                 // Show success toast
                 let _ = sender.output(SettingsOutput::ShowToast(msg));
 
@@ -240,6 +290,12 @@ impl SimpleComponent for SettingsDialog {
                 let _ = sender.output(SettingsOutput::ShowToast(msg));
             }
 
+            SettingsMsg::SetGcDays(days) => {
+                self.gc_days = days;
+                if let Some(settings) = &self.settings {
+                    let _ = settings.set_int("gc-days", days as i32);
+                }
+            }
         }
     }
 }

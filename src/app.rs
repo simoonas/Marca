@@ -584,7 +584,7 @@ impl SimpleComponent for App {
                         // Add synthetic "Untagged" tag for bookmarks without tags
                         let untagged_tag = crate::db::Tag {
                             id: Some(UNTAGGED_TAG_ID),
-                            title: "Untagged".to_string(),
+                            title: "not #tagged".to_string(),
                         };
                         tags.push(untagged_tag);
                         // Sort tags alphabetically (Untagged will be last due to 'U')

@@ -171,4 +171,8 @@ impl Database {
     ) -> Result<ImportResult> {
         import::import_bookmarks(&self.conn, bookmarks)
     }
+
+    pub fn gc_deleted_bookmarks(&self, days: u32) -> Result<usize> {
+        queries::gc_deleted_bookmarks(&self.conn, days)
+    }
 }
