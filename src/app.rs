@@ -47,6 +47,7 @@ pub struct App {
 pub enum AppMsg {
     BookmarkSearch(String),
     TagSearch(String),
+    PinTopTag,
     TagToggled(i64),
     ClearPinnedTags,
     RefreshBookmarks,
@@ -145,6 +146,9 @@ impl SimpleComponent for App {
                                         set_primary_icon_name: Some(HASHTAG_SYMBOLIC),
                                         connect_changed[sender] => move |entry| {
                                             sender.input(AppMsg::TagSearch(entry.text().to_string()));
+                                        },
+                                        connect_activate[sender] => move |_| {
+                                            sender.input(AppMsg::PinTopTag);
                                         }
                                     },
 
@@ -181,7 +185,7 @@ impl SimpleComponent for App {
                                         set_margin_start: 12,
                                         set_margin_end: 12,
                                         #[watch]
-                                        set_visible: !model.pinned_tag_ids.is_empty(),
+                                        set_visible: !model.pinned_tags.is_empty(),
 
                                         gtk::Separator {
                                             set_orientation: gtk::Orientation::Horizontal,
@@ -482,8 +486,9 @@ impl SimpleComponent for App {
              .hotkey-shortcut { font-size: 0.8em; padding: 0; margin: 0; }
              actionbar > revealer { min-height: 0; }
             listview > row { margin-top: 2px; margin-bottom: 1px; margin-left: 9px; margin-right: 9px; }
-             listview > row:selected { background-color: rgba(120, 120, 120, 0.1); border-radius: 8px; }
-             listview > row:focus { border-radius: 8px; outline: 2px solid @accent_color; outline-offset: -2px; }",
+             listview > row:selected { border-radius: 14px; outline-offset: 2px;}
+             // listview > row:selected { background-color: @accent_color; border-radius: 16px; outline-offset: -2px;}
+             listview > row:focus { border-radius: 16px; outline: 2px solid @accent_color; outline-offset: -2px; }",
         );
         gtk::style_context_add_provider_for_display(
             &adw::prelude::WidgetExt::display(&root),
@@ -522,6 +527,20 @@ impl SimpleComponent for App {
             AppMsg::TagSearch(query) => {
                 self.tag_search = query;
                 _sender.input(AppMsg::RefreshTags);
+            }
+
+            AppMsg::PinTopTag => {
+                let unpinned_guard = self.unpinned_tags.guard();
+
+                let top_unpinned = unpinned_guard.iter().find_map(|t| t.tag.id);
+
+                drop(unpinned_guard);
+
+                if let Some(tag_id) = top_unpinned {
+                    self.pinned_tag_ids.push(tag_id);
+                    _sender.input(AppMsg::RefreshTags);
+                    _sender.input(AppMsg::RefreshBookmarks);
+                }
             }
 
             AppMsg::TagToggled(tag_id) => {

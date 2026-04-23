@@ -255,9 +255,9 @@ pub fn search_bookmarks(
                  LEFT JOIN tags t ON bt.tag_id = t.id
                  WHERE bookmarks_fts MATCH ?1
                     AND (NOT EXISTS
-                            (SELECT 1 FROM bookmark_tags bt
-                            WHERE bt.bookmark_id = b.id)
-                    OR bt.tag_id IN (SELECT value FROM json_each(?2))) AND b.deleted = 0
+                            (SELECT 1 FROM bookmark_tags bt2
+                            WHERE bt2.bookmark_id = b.id)
+                    OR b.id IN (SELECT bt3.bookmark_id FROM bookmark_tags bt3 WHERE bt3.tag_id IN (SELECT value FROM json_each(?2)))) AND b.deleted = 0
                  GROUP BY b.id
                  {}",
                 order_clause
@@ -280,23 +280,29 @@ pub fn search_bookmarks(
         } else {
             // Regular tags only (no untagged)
             let tag_ids_json = serde_json::to_string(&regular_tag_ids).unwrap();
-            let having_clause = match tag_filter_mode {
-                TagFilterMode::All => "HAVING COUNT(bt.tag_id) = ?3",
-                TagFilterMode::Any => "HAVING COUNT(bt.tag_id) >= 1",
+            let inner_having = match tag_filter_mode {
+                TagFilterMode::All => "HAVING COUNT(bt2.tag_id) = ?3",
+                TagFilterMode::Any => "HAVING COUNT(bt2.tag_id) >= 1",
             };
             let query_str = format!(
                 "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
                         GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
                  FROM bookmarks b
                  JOIN bookmarks_fts fts ON b.id = fts.rowid
-                 JOIN bookmark_tags bt ON b.id = bt.bookmark_id
+                 LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
                  LEFT JOIN tags t ON bt.tag_id = t.id
-                 WHERE bookmarks_fts MATCH ?1 AND bt.tag_id IN (SELECT value FROM json_each(?2)) AND b.deleted = 0
+                 WHERE bookmarks_fts MATCH ?1 
+                   AND b.id IN (
+                       SELECT bt2.bookmark_id FROM bookmark_tags bt2 
+                       WHERE bt2.tag_id IN (SELECT value FROM json_each(?2))
+                       GROUP BY bt2.bookmark_id
+                       {}
+                   )
+                   AND b.deleted = 0
                  GROUP BY b.id
-                 {}
                  {}",
-                having_clause,
+                inner_having,
                 order_clause
             );
 
@@ -371,10 +377,10 @@ pub fn search_bookmarks(
                  LEFT JOIN tags t ON bt.tag_id = t.id
                  WHERE (
                     NOT EXISTS (
-                        SELECT 1 FROM bookmark_tags bt
-                        WHERE bt.bookmark_id = b.id
+                        SELECT 1 FROM bookmark_tags bt2
+                        WHERE bt2.bookmark_id = b.id
                     )
-                    OR bt.tag_id IN (SELECT value FROM json_each(?1)))
+                    OR b.id IN (SELECT bt3.bookmark_id FROM bookmark_tags bt3 WHERE bt3.tag_id IN (SELECT value FROM json_each(?1))))
                     AND b.deleted = 0
                  GROUP BY b.id
                  {}",
@@ -398,22 +404,26 @@ pub fn search_bookmarks(
         } else {
             // Regular tags only (no untagged)
             let tag_ids_json = serde_json::to_string(&regular_tag_ids).unwrap();
-            let having_clause = match tag_filter_mode {
-                TagFilterMode::All => "HAVING COUNT(bt.tag_id) = ?2",
-                TagFilterMode::Any => "HAVING COUNT(bt.tag_id) >= 1",
+            let inner_having = match tag_filter_mode {
+                TagFilterMode::All => "HAVING COUNT(bt2.tag_id) = ?2",
+                TagFilterMode::Any => "HAVING COUNT(bt2.tag_id) >= 1",
             };
             let query_str = format!(
                 "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
                         GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
                  FROM bookmarks b
-                 JOIN bookmark_tags bt ON b.id = bt.bookmark_id
+                 LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
                  LEFT JOIN favicons f ON b.favicon_hash = f.hash
                  LEFT JOIN tags t ON bt.tag_id = t.id
-                 WHERE bt.tag_id IN (SELECT value FROM json_each(?1)) AND b.deleted = 0
+                 WHERE b.id IN (
+                     SELECT bt2.bookmark_id FROM bookmark_tags bt2 
+                     WHERE bt2.tag_id IN (SELECT value FROM json_each(?1))
+                     GROUP BY bt2.bookmark_id
+                     {}
+                 ) AND b.deleted = 0
                  GROUP BY b.id
-                 {}
                  {}",
-                having_clause,
+                inner_having,
                 order_clause
             );
 
