@@ -15,7 +15,7 @@ fn main() {
     );
 
     // Compile GSettings schemas for local development
-    println!("cargo:rerun-if-changed=data/com.marca.app.gschema.xml");
+    println!("cargo:rerun-if-changed=data/io.github.simoonas.marca.gschema.xml");
     if let Err(e) = std::process::Command::new("glib-compile-schemas")
         .arg("data")
         .status()

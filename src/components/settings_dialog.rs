@@ -113,10 +113,10 @@ impl SimpleComponent for SettingsDialog {
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
         let settings = if gio::SettingsSchemaSource::default()
-            .and_then(|source| source.lookup("com.marca.app", true))
+            .and_then(|source| source.lookup("io.github.simoonas.marca", true))
             .is_some()
         {
-            Some(gio::Settings::new("com.marca.app"))
+            Some(gio::Settings::new("io.github.simoonas.marca"))
         } else {
             None
         };

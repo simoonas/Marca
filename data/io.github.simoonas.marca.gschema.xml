@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
-  <schema id="com.marca.app" path="/com/marca/app/">
+  <schema id="io.github.simoonas.marca" path="/io/github/simoonas/marca/">
     <key name="gc-days" type="i">
       <default>30</default>
       <summary>Days before clearing deleted bookmarks</summary>
