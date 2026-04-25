@@ -1,6 +1,6 @@
 # Marca 
 Find cool stuff you saved to a growing pile of thousands of saved pages and forgot.
-![assets/default.png] ![assets/any-tags.png]
+![](assets/default.png) ![](assets/any-tags.png)
 # Features:
 - Full Text Search
 - Filter using tags inclusively, exclusively
