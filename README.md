@@ -1,9 +1,12 @@
 # Marca 
-
 Find cool stuff you saved to a growing pile of thousands of saved pages and forgot.
+![assets/default.png] ![assets/any-tags.png]
 # Features:
 - Full Text Search
 - Filter using tags inclusively, exclusively
+- Sort by `created`, `modified`, `title`, `URL`, `Relevance`
+- Keyboard controls
+- import from browsers
 ## Coming soon:
 - [ ] nested tags
 - [ ] JSON/CSV exports
