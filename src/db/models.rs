@@ -101,14 +101,6 @@ impl SortField {
             }
         }
     }
-
-    pub fn initial(has_query: bool) -> Self {
-        if has_query {
-            Self::Relevance
-        } else {
-            Self::Created
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

@@ -6,7 +6,6 @@ use relm4::prelude::*;
 #[derive(Debug, Clone)]
 pub struct TagRow {
     pub tag: Tag,
-    is_pinned: bool,
     pub is_editing: bool,
     is_hovered: bool,
 }
@@ -39,7 +38,7 @@ pub enum TagRowOutput {
 
 #[relm4::factory(pub)]
 impl FactoryComponent for TagRow {
-    type Init = (Tag, bool); // (tag, is_pinned)
+    type Init = Tag;
     type Input = TagRowMsg;
     type Output = TagRowOutput;
     type CommandOutput = ();
@@ -129,8 +128,7 @@ impl FactoryComponent for TagRow {
 
     fn init_model(init: Self::Init, _index: &DynamicIndex, _sender: FactorySender<Self>) -> Self {
         Self {
-            tag: init.0,
-            is_pinned: init.1,
+            tag: init,
             is_editing: false,
             is_hovered: false,
         }

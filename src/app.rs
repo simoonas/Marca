@@ -628,7 +628,7 @@ impl SimpleComponent for App {
                             let mut guard = self.pinned_tags.guard();
                             guard.clear();
                             for tag in pinned {
-                                guard.push_back((tag, true));
+                                guard.push_back(tag);
                             }
                         }
 
@@ -637,7 +637,7 @@ impl SimpleComponent for App {
                             let mut guard = self.unpinned_tags.guard();
                             guard.clear();
                             for tag in unpinned {
-                                guard.push_back((tag, false));
+                                guard.push_back(tag);
                             }
                         }
                     }

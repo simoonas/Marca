@@ -76,13 +76,6 @@ impl Database {
         Ok(())
     }
 
-    pub fn is_empty(&self) -> Result<bool> {
-        let count: i64 = self
-            .conn
-            .query_row("SELECT COUNT(*) FROM bookmarks", [], |row| row.get(0))?;
-        Ok(count == 0)
-    }
-
     pub fn conn(&self) -> &Connection {
         &self.conn
     }

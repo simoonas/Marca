@@ -6,7 +6,6 @@ mod settings_dialog;
 mod hotkey_display;
 
 pub use bookmark_edit_dialog::*;
-pub use bookmark_row::*;
 pub use bookmark_list_item::*;
 pub use tag_row::*;
 pub use settings_dialog::*;
