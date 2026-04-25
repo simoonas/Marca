@@ -611,8 +611,8 @@ impl SimpleComponent for App {
 
                         // Filter by search query if active
                         if !self.tag_search.is_empty() {
-                            let query_lower = self.tag_search.to_lowercase();
-                            tags.retain(|tag| tag.title.to_lowercase().contains(&query_lower));
+                            let query_normalized = deunicode::deunicode(&self.tag_search.to_lowercase());
+                            tags.retain(|tag| deunicode::deunicode(&tag.title.to_lowercase()).contains(&query_normalized));
                         }
 
                         // Separate into pinned and unpinned
@@ -1320,6 +1320,7 @@ impl SimpleComponent for App {
                         _sender.input_sender(),
                         |output| match output {
                             SettingsOutput::RefreshBookmarks => AppMsg::RefreshBookmarks,
+                            SettingsOutput::RefreshTags => AppMsg::RefreshTags,
                             SettingsOutput::ShowToast(msg) => AppMsg::ShowToast(msg),
                         },
                     );

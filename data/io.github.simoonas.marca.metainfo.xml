@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.simoonas.marca</id>
+  
+  <name>Marca</name>
+  <summary>Organize &amp; find your deeplinks quickly.</summary>
+  <url type="homepage">https://github.com/simoonas/Marca</url> 
+  <metadata_license>MIT</metadata_license>
+  <project_license>GPL-2.0-or-later</project_license>
+  
+  <description>
+    <p>
+      Marca lets you save, organize and quickly find your deeplinks using full-text search &amp; tags.
+    </p>
+  </description>
+  
+  <launchable type="desktop-id">io.github.simoonas.marca.desktop</launchable>
+</component>

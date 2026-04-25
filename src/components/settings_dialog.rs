@@ -21,6 +21,7 @@ pub enum SettingsMsg {
 #[derive(Debug)]
 pub enum SettingsOutput {
     RefreshBookmarks,
+    RefreshTags,
     ShowToast(String),
 }
 
@@ -245,8 +246,9 @@ impl SimpleComponent for SettingsDialog {
                     format!("{}, {} errors", msg, result.errors.len())
                 };
 
-                // Notify parent to refresh bookmarks
+                // Notify parent to refresh bookmarks and tags
                 let _ = sender.output(SettingsOutput::RefreshBookmarks);
+                let _ = sender.output(SettingsOutput::RefreshTags);
 
                 // Show success toast
                 let _ = sender.output(SettingsOutput::ShowToast(msg));
