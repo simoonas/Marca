@@ -8,7 +8,6 @@
     ],
     "command": "marca",
     "finish-args": [
-        "--share=ipc",
         "--socket=fallback-x11",
         "--socket=wayland",
         "--device=dri",
@@ -36,10 +35,19 @@
                 "glib-compile-schemas ${FLATPAK_DEST}/share/glib-2.0/schemas/",
                 "install -Dm0644 data/io.github.simoonas.marca.metainfo.xml ${FLATPAK_DEST}/share/metainfo/${FLATPAK_ID}.metainfo.xml"
             ],
+            "cleanup": [
+                "/include",
+                "/lib/pkgconfig",
+                "/share/doc",
+                "/share/man",
+                "*.la",
+                "*.a"
+            ],
             "sources" : [
                 {
-                    "type": "dir",
-                    "path": "." 
+                    "type" : "git",
+                    "url" : "https://github.com/simoonas/Marca.git",
+                    "branch": "master"
                 },
                 "cargo-sources.json"
             ]

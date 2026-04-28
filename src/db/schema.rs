@@ -59,12 +59,14 @@ pub const CREATE_TRIGGERS: &[&str] = &[
         VALUES (new.id, new.title, new.note, new.url);
     END",
     "CREATE TRIGGER IF NOT EXISTS bookmarks_ad AFTER DELETE ON bookmarks BEGIN
-        DELETE FROM bookmarks_fts WHERE rowid = old.id;
+        INSERT INTO bookmarks_fts(bookmarks_fts, rowid, title, note, url)
+        VALUES ('delete', old.id, old.title, old.note, old.url);
     END",
     "CREATE TRIGGER IF NOT EXISTS bookmarks_au AFTER UPDATE ON bookmarks BEGIN
-        UPDATE bookmarks_fts 
-        SET title = new.title, note = new.note, url = new.url
-        WHERE rowid = new.id;
+        INSERT INTO bookmarks_fts(bookmarks_fts, rowid, title, note, url)
+        VALUES ('delete', old.id, old.title, old.note, old.url);
+        INSERT INTO bookmarks_fts(rowid, title, note, url)
+        VALUES (new.id, new.title, new.note, new.url);
     END",
 ];
 // TODO:

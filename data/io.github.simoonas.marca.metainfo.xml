@@ -3,16 +3,78 @@
   <id>io.github.simoonas.marca</id>
   
   <name>Marca</name>
-  <summary>Organize &amp; find your deeplinks quickly.</summary>
-  <url type="homepage">https://github.com/simoonas/Marca</url> 
-  <metadata_license>MIT</metadata_license>
-  <project_license>GPL-2.0-or-later</project_license>
+  <summary>Organize &amp; find your deeplinks quickly</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-only</project_license>
   
   <description>
     <p>
-      Marca lets you save, organize and quickly find your deeplinks using full-text search &amp; tags.
+      Marca lets you find your web bookmarks or deeplinks to other apps using tags and full-text search.
     </p>
+
+    <p>**Features:**</p>
+    <ul>
+      <li>Full Text Search</li>
+      <li>Filter using tags inclusively/exclusively</li>
+      <li>Sort by created, modified, title, URL, Relevance</li>
+      <li>Keyboard controls</li>
+      <li>Import from browsers</li>
+      <li>More coming soon!</li>
+    </ul>
   </description>
   
+  <developer id="github.com/simoonas">
+    <name translate="no">Simonas Ju</name>
+  </developer>
+
+  <url type="vcs-browser">https://github.com/simoonas/Marca</url>
+  <url type="bugtracker">https://github.com/simoonas/Marca/issues</url>
+  <url type="faq">https://github.com/simoonas/Marca#readme</url>
+  <url type="homepage">https://github.com/simoonas/Marca</url> 
+
   <launchable type="desktop-id">io.github.simoonas.marca.desktop</launchable>
+  <content_rating type="oars-1.1" />
+
+  <branding>
+    <color type="primary" scheme_preference="light">#8ff0a4</color>
+    <color type="primary" scheme_preference="dark">#26a269</color>
+  </branding>
+
+  <screenshots>
+    <screenshot type="default">
+      <image>https://github.com/simoonas/Marca/raw/master/assets/default.png</image>
+      <caption>Main view (dark mode)</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://github.com/simoonas/Marca/raw/master/assets/any-tags.png</image>
+      <caption>Bookmarks containing any pinned tags </caption>
+    </screenshot>
+    <screenshot>
+      <image>https://github.com/simoonas/Marca/raw/master/assets/all-tags.png</image>
+      <caption>Bookmarks tagged `Eco` and `map` sorted by modified time</caption>
+    </screenshot>
+    <screenshot>
+      <image>https://github.com/simoonas/Marca/raw/master/assets/edit-create.png</image>
+      <caption>Edit/create bookmark</caption>
+    </screenshot>
+  </screenshots>
+
+  <releases>
+    <release version="0.1.0" date="2026-04-26">
+      <url type="details">https://github.com/simoonas/Marca/releases/tag/v1.0</url>
+      <description>
+        <p>First release</p>
+          <ul>
+            <li>User-friendly UI with hotkey hints, made with gtk4 and libadwaita</li>
+            <li>Full Text Search</li>
+            <li>Filter using tags inclusively/exclusively</li>
+            <li>Sort by created, modified, title, URL, Relevance</li>
+            <li>Keyboard controls</li>
+            <li>Import from browsers</li>
+            <li>More coming soon!</li>
+          </ul>
+      </description>
+    </release>
+  </releases>
+
 </component>

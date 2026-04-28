@@ -481,8 +481,8 @@ impl SimpleComponent for App {
         css_provider.load_from_data(
             ".favicon-icon { border-radius: 8px; min-width: 32px; min-height: 32px; }
              button.compact { padding: 0; margin: 0; min-height: 24px; font-size: 0.85em; }
-             .untagged-tag { background-color: cyan; background-color: rgba(29, 108, 145, 0.9); }
-             .untagged-tag-label { font-style: italic; }
+            .untagged-tag:not(:hover) { background-color: var(--accent-teal); }
+            .untagged-tag:not(:hover) .untagged-tag-label { color: white; }
              .hotkey-shortcut { font-size: 0.8em; padding: 0; margin: 0; }
              actionbar > revealer { min-height: 0; }
             listview > row { margin-top: 2px; margin-bottom: 1px; margin-left: 9px; margin-right: 9px; }
@@ -611,8 +611,12 @@ impl SimpleComponent for App {
 
                         // Filter by search query if active
                         if !self.tag_search.is_empty() {
-                            let query_normalized = deunicode::deunicode(&self.tag_search.to_lowercase());
-                            tags.retain(|tag| deunicode::deunicode(&tag.title.to_lowercase()).contains(&query_normalized));
+                            let query_normalized =
+                                deunicode::deunicode(&self.tag_search.to_lowercase());
+                            tags.retain(|tag| {
+                                deunicode::deunicode(&tag.title.to_lowercase())
+                                    .contains(&query_normalized)
+                            });
                         }
 
                         // Separate into pinned and unpinned

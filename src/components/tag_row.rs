@@ -86,6 +86,8 @@ impl FactoryComponent for TagRow {
                     set_halign: gtk::Align::Start,
                     set_hexpand: true,
                     set_css_classes: &["monospace"],
+                    #[watch]
+                    set_class_active: ("untagged-tag-label", self.tag.id == Some(UNTAGGED_TAG_ID)),
                 },
 
                 #[name = "entry"]
