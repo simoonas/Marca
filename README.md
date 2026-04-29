@@ -20,7 +20,7 @@ Find cool stuff you saved to a growing pile of thousands of saved pages and forg
 - [ ] nested tags
 - [ ] JSON/CSV exports
 - [ ] reader mode
-- [ ] CRDT-based conflict free syncing
+- [ ] conflict free syncing - no server self-hosting required
 ## Coming later:
 - [ ] daemon for capturing links
 - [ ] compact/grid view

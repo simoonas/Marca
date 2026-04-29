@@ -70,6 +70,16 @@ impl SimpleComponent for BookmarkEditDialog {
             set_content_width: 500,
             set_content_height: 450,
 
+            add_controller = gtk::EventControllerKey {
+                connect_key_pressed[sender] => move |_, key, _, state| {
+                    if key == gtk::gdk::Key::Return && state.contains(gtk::gdk::ModifierType::CONTROL_MASK) {
+                        let _ = sender.input_sender().send(BookmarkEditMsg::Save);
+                        return gtk::glib::Propagation::Stop;
+                    }
+                    gtk::glib::Propagation::Proceed
+                }
+            },
+
             #[wrap(Some)]
             set_child = &gtk::Box {
                 set_orientation: gtk::Orientation::Vertical,
@@ -78,14 +88,43 @@ impl SimpleComponent for BookmarkEditDialog {
                 adw::HeaderBar {
                     set_show_end_title_buttons: false,
                     pack_start = &gtk::Button {
-                        set_label: "Cancel",
+
+                        #[wrap(Some)]
+                        set_child = &gtk::Box {
+                            set_orientation: gtk::Orientation::Horizontal,
+                            set_spacing: 6,
+
+                            gtk::Label {
+                                set_label: "Cancel",
+                            },
+
+                            gtk::Label {
+                                set_label: "Esc",
+                                add_css_class: "dim-label",
+                            }
+                        },
+
                         connect_clicked => BookmarkEditMsg::Cancel,
                     },
 
                     pack_end = &gtk::Button {
-                        set_label: "Save",
                         add_css_class: "suggested-action",
                         connect_clicked => BookmarkEditMsg::Save,
+
+                        #[wrap(Some)]
+                        set_child = &gtk::Box {
+                            set_orientation: gtk::Orientation::Horizontal,
+                            set_spacing: 6,
+
+                            gtk::Label {
+                                set_label: "Save",
+                            },
+
+                            gtk::Label {
+                                set_label: "Ctrl+Enter",
+                                add_css_class: "dim-label",
+                            }
+                        }
                     }
                 },
 
@@ -107,6 +146,9 @@ impl SimpleComponent for BookmarkEditDialog {
                                 #[name = "title_entry"]
                                 adw::EntryRow {
                                     set_title: "Title",
+                                    connect_realize => move |row| {
+                                        row.grab_focus();
+                                    },
                                 }
                             },
 

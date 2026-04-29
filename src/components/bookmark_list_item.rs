@@ -48,7 +48,6 @@ impl BookmarkListItem {
 /// Widgets that are set up once and reused for each list item
 pub struct BookmarkListItemWidgets {
     pub favicon_picture: gtk::Picture,
-    pub favicon_placeholder: gtk::Image,
     pub title_label: gtk::Label,
     pub url_label: gtk::Label,
     pub tags_box: gtk::Box,
@@ -70,12 +69,6 @@ impl RelmListItem for BookmarkListItem {
         let favicon_picture = gtk::Picture::new();
         favicon_picture.add_css_class("favicon-icon");
         favicon_picture.set_can_shrink(true);
-
-        let favicon_placeholder = gtk::Image::builder()
-            .icon_name("image-missing-symbolic")
-            .pixel_size(32)
-            .build();
-        favicon_placeholder.add_css_class("dim-label");
 
         // Content box (title, URL, tags)
         let content_box = gtk::Box::new(gtk::Orientation::Vertical, 2);
@@ -114,7 +107,6 @@ impl RelmListItem for BookmarkListItem {
             root,
             BookmarkListItemWidgets {
                 favicon_picture,
-                favicon_placeholder,
                 title_label,
                 url_label,
                 tags_box,
@@ -143,10 +135,8 @@ impl RelmListItem for BookmarkListItem {
         if let Some(ref texture) = self.favicon_texture {
             widgets.favicon_picture.set_paintable(Some(texture));
             widgets.favicon_picture.set_visible(true);
-            widgets.favicon_placeholder.set_visible(false);
         } else {
             widgets.favicon_picture.set_visible(false);
-            widgets.favicon_placeholder.set_visible(true);
         }
 
         // Clear existing tags

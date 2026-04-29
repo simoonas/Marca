@@ -9,7 +9,7 @@
   
   <description>
     <p>
-      Marca lets you find your web bookmarks or deeplinks to other apps using tags and full-text search.
+      Find your web bookmarks or deeplinks to apps with tags and full-text search
     </p>
 
     <p>**Features:**</p>
@@ -36,8 +36,8 @@
   <content_rating type="oars-1.1" />
 
   <branding>
-    <color type="primary" scheme_preference="light">#8ff0a4</color>
-    <color type="primary" scheme_preference="dark">#26a269</color>
+    <color type="primary" scheme_preference="light">#3d3846</color>
+    <color type="primary" scheme_preference="dark">#a599a5</color>
   </branding>
 
   <screenshots>

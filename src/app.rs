@@ -479,7 +479,7 @@ impl SimpleComponent for App {
         // Load custom CSS for favicon styling, compact buttons, and untagged tag styling
         let css_provider = gtk::CssProvider::new();
         css_provider.load_from_data(
-            ".favicon-icon { border-radius: 8px; min-width: 32px; min-height: 32px; }
+            ".favicon-icon { border-radius: 4px; max-width: 48px; max-height: 48px; min-width: 24px; min-height: 24px;}
              button.compact { padding: 0; margin: 0; min-height: 24px; font-size: 0.85em; }
             .untagged-tag:not(:hover) { background-color: var(--accent-teal); }
             .untagged-tag:not(:hover) .untagged-tag-label { color: white; }
