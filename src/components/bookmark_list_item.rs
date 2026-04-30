@@ -152,9 +152,7 @@ impl RelmListItem for BookmarkListItem {
             for (idx, tag) in self.tags.iter().enumerate() {
                 if idx < visible_count {
                     let badge = gtk::Label::new(Some(&format!("#{}", tag.title)));
-                    badge.add_css_class("tag-badge");
-                    badge.add_css_class("accent");
-                    badge.add_css_class("monospace");
+                    badge.set_css_classes(&["monospace", "accent", "tag-badge"]);
                     badge.set_margin_start(2);
                     badge.set_margin_end(2);
                     widgets.tags_box.append(&badge);

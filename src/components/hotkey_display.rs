@@ -34,10 +34,10 @@ impl SimpleComponent for HotkeyDisplay {
     view! {
         gtk::Box {
             set_orientation: gtk::Orientation::Horizontal,
-            set_spacing: 6,
+            set_spacing: 2,
             set_homogeneous: false,
-            set_margin_start: 6,
-            set_margin_end: 6,
+            set_margin_start: 0,
+            set_margin_end: 0,
         }
     }
 

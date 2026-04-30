@@ -28,6 +28,7 @@
             "build-commands": [
                 "cargo build --offline --release --all-features",
                 "install -Dm0755 target/release/marca ${FLATPAK_DEST}/bin/marca",
+                "install -Dm0755 src/db/better-trigram.so ${FLATPAK_DEST}/lib/better-trigram.so",
                 "install -Dm0644 data/io.github.simoonas.marca.svg ${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/${FLATPAK_ID}.svg",
                 "install -Dm0644 data/io.github.simoonas.marca-symbolic.svg ${FLATPAK_DEST}/share/icons/hicolor/symbolic/apps/${FLATPAK_ID}-symbolic.svg",
                 "install -Dm0644 data/io.github.simoonas.marca.desktop ${FLATPAK_DEST}/share/applications/${FLATPAK_ID}.desktop",

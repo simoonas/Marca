@@ -16,6 +16,7 @@ pub enum SettingsMsg {
     FileSelected(Option<std::path::PathBuf>),
     ImportComplete(Result<crate::db::ImportResult, String>),
     SetGcDays(u32),
+    ShowAbout,
 }
 
 #[derive(Debug)]
@@ -102,6 +103,20 @@ impl SimpleComponent for SettingsDialog {
                         set_margin_start: 12,
                         set_margin_end: 12,
                         set_pulse_step: 0.1,
+                    }
+                },
+
+                add = &adw::PreferencesGroup {
+                    set_title: "About",
+
+                    adw::ActionRow {
+                        set_title: "About",
+                        set_activatable: true,
+                        add_suffix = &gtk::Image::builder()
+                            .icon_name("go-next-symbolic")
+                            .build(),
+
+                        connect_activated => SettingsMsg::ShowAbout,
                     }
                 }
             }
@@ -297,6 +312,26 @@ impl SimpleComponent for SettingsDialog {
                 if let Some(settings) = &self.settings {
                     let _ = settings.set_int("gc-days", days as i32);
                 }
+            }
+
+            SettingsMsg::ShowAbout => {
+                // Present adw::AboutDialog
+                let about = adw::AboutDialog::builder()
+                    .application_name("Marca")
+                    .application_icon(crate::icon_names::custom::MARCA)
+                    .developer_name("simoonas")
+                    .version("0.1.0")
+                    .website("https://github.com/simoonas/Marca")
+                    .build();
+
+                // Get parent window
+                let parent_window: Option<gtk::Window> = self
+                    .root
+                    .upcast_ref::<gtk::Widget>()
+                    .root()
+                    .and_then(|root| root.downcast::<gtk::Window>().ok());
+
+                about.present(parent_window.as_ref());
             }
         }
     }

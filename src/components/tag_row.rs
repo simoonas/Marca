@@ -85,7 +85,7 @@ impl FactoryComponent for TagRow {
                     set_visible: !self.is_editing,
                     set_halign: gtk::Align::Start,
                     set_hexpand: true,
-                    set_css_classes: &["monospace"],
+                    set_css_classes: &["monospace", "tag"],
                     #[watch]
                     set_class_active: ("untagged-tag-label", self.tag.id == Some(UNTAGGED_TAG_ID)),
                 },

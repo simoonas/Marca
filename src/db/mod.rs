@@ -26,6 +26,21 @@ impl Database {
         eprintln!("Opening database at: {}", db_path.display());
         let conn = Connection::open(&db_path)?;
 
+        // Load the custom better-trigram SQLite extension
+        unsafe {
+            let _guard = conn.load_extension_enable()?;
+            let flatpak_path = std::path::Path::new("/app/lib/better-trigram.so");
+            let local_path = std::path::Path::new("src/db/better-trigram.so");
+            let ext_path = if flatpak_path.exists() {
+                flatpak_path
+            } else {
+                local_path
+            };
+            if let Err(e) = conn.load_extension(ext_path, Some("sqlite3_bettertrigram_init")) {
+                eprintln!("Warning: Failed to load better-trigram extension: {}", e);
+            }
+        }
+
         let mut db = Self { conn };
         db.init_schema()?;
 

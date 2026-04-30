@@ -257,7 +257,7 @@ impl SimpleComponent for App {
 
                                 gtk::Box {
                                     add_css_class: "linked",
-                                    set_margin_start: 3,
+                                    set_margin_start: 4,
                                     set_spacing: 0,
 
                                     #[name = "sort_field_button"]
@@ -305,7 +305,7 @@ impl SimpleComponent for App {
                         connect_clicked => AppMsg::OpenSettings,
 
                         set_child = Some(&gtk::Image::builder()
-                            .icon_name(PEGGED_WHEELS_SYMBOLIC)
+                            .icon_name(COGGED_WHEEL_SYMBOLIC)
                             .icon_size(gtk::IconSize::Normal)
                             .build()),
                     },
@@ -483,8 +483,10 @@ impl SimpleComponent for App {
              button.compact { padding: 0; margin: 0; min-height: 24px; font-size: 0.85em; }
             .untagged-tag:not(:hover) { background-color: var(--accent-teal); }
             .untagged-tag:not(:hover) .untagged-tag-label { color: white; }
+            .tag { font-weight: 400; font-family: 'Adwaita Sans'; }
              .hotkey-shortcut { font-size: 0.8em; padding: 0; margin: 0; }
              actionbar > revealer { min-height: 0; }
+            .actionbar-btn { margin-end: 0; }
             listview > row { margin-top: 2px; margin-bottom: 1px; margin-left: 9px; margin-right: 9px; }
              listview > row:selected { border-radius: 14px; outline-offset: 2px;}
              // listview > row:selected { background-color: @accent_color; border-radius: 16px; outline-offset: -2px;}
@@ -1102,12 +1104,12 @@ impl SimpleComponent for App {
                             if let Some(_) = focused_bookmark_id {
                                 actions.push(HotkeyAction {
                                     id: 4,
-                                    label: "Edit bookmark".to_string(),
+                                    label: "Edit".to_string(),
                                     accelerator: "<Ctrl>e".to_string(),
                                 });
                                 actions.push(HotkeyAction {
                                     id: 5,
-                                    label: "Delete bookmark".to_string(),
+                                    label: "Delete".to_string(),
                                     accelerator: "<Ctrl>d".to_string(),
                                 });
                             }

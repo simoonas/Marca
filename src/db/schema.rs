@@ -40,7 +40,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS bookmarks_fts USING fts5(
     url,
     content='bookmarks',
     content_rowid='id',
-    tokenize='trigram remove_diacritics 1'
+    tokenize='better_trigram remove_diacritics 1'
 )";
 
 pub const CREATE_INDEXES: &[&str] = &[
