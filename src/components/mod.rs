@@ -1,5 +1,4 @@
 mod bookmark_edit_dialog;
-mod bookmark_row;
 mod bookmark_list_item;
 mod tag_row;
 mod settings_dialog;

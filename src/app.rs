@@ -478,7 +478,7 @@ impl SimpleComponent for App {
 
         // Load custom CSS for favicon styling, compact buttons, and untagged tag styling
         let css_provider = gtk::CssProvider::new();
-        css_provider.load_from_data(
+        css_provider.load_from_string(
             ".favicon-icon { border-radius: 4px; max-width: 48px; max-height: 48px; min-width: 24px; min-height: 24px;}
              button.compact { padding: 0; margin: 0; min-height: 24px; font-size: 0.85em; }
             .untagged-tag:not(:hover) { background-color: var(--accent-teal); }
@@ -490,7 +490,12 @@ impl SimpleComponent for App {
             listview > row { margin-top: 2px; margin-bottom: 1px; margin-left: 9px; margin-right: 9px; }
              listview > row:selected { border-radius: 14px; outline-offset: 2px;}
              // listview > row:selected { background-color: @accent_color; border-radius: 16px; outline-offset: -2px;}
-             listview > row:focus { border-radius: 16px; outline: 2px solid @accent_color; outline-offset: -2px; }",
+             listview > row:focus { border-radius: 16px; outline: 2px solid @accent_color; outline-offset: -2px; }
+             .suggestion-popover contents { padding: 0; background-color: @popover_bg_color; border-radius: 12px; min-width: 450px; }
+             .suggestion-list { background-color: transparent; margin: 4px; }
+             .suggestion-list row { padding: 4px 8px; border-radius: 8px; margin-bottom: 2px; }
+             .suggestion-list row:last-child { margin-bottom: 0; }
+             .suggestion-list row:selected { background-color: @accent_bg_color; color: @accent_fg_color; }",
         );
         gtk::style_context_add_provider_for_display(
             &adw::prelude::WidgetExt::display(&root),

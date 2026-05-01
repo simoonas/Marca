@@ -52,7 +52,7 @@ impl SimpleComponent for HotkeyDisplay {
             accelerator: "<Ctrl>l".to_string(),
         }];
 
-        let mut model = HotkeyDisplay {
+        let model = HotkeyDisplay {
             actions: initial_actions.clone(),
             root: root.clone(),
         };

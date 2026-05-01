@@ -155,48 +155,39 @@ impl SimpleComponent for SettingsDialog {
         match msg {
             SettingsMsg::ImportBookmarks => {
                 // Get parent window by finding the root widget
-                // The dialog will be parented to the main window when presented
                 let parent_window: Option<gtk::Window> = self
                     .root
                     .upcast_ref::<gtk::Widget>()
                     .root()
                     .and_then(|root| root.downcast::<gtk::Window>().ok());
 
-                // Create file chooser using FileChooserNative (supports portals)
-                let file_chooser = gtk::FileChooserNative::new(
-                    Some("Import HTML Bookmarks"),
-                    parent_window.as_ref(),
-                    gtk::FileChooserAction::Open,
-                    Some("Import"),
-                    Some("Cancel"),
-                );
-
-                // Set modal
-                file_chooser.set_modal(true);
+                let file_dialog = gtk::FileDialog::new();
+                file_dialog.set_title("Import HTML Bookmarks");
+                file_dialog.set_accept_label(Some("Import"));
 
                 // Create filter for HTML files
                 let filter = gtk::FileFilter::new();
                 filter.add_pattern("*.html");
                 filter.add_pattern("*.htm");
                 filter.set_name(Some("HTML Bookmark Files"));
-                file_chooser.add_filter(&filter);
+
+                let filters = gio::ListStore::new::<gtk::FileFilter>();
+                filters.append(&filter);
+                file_dialog.set_filters(Some(&filters));
 
                 // Set initial folder to home directory
                 if let Some(home) = dirs::home_dir() {
-                    let _ = file_chooser.set_current_folder(Some(&gio::File::for_path(&home)));
+                    file_dialog.set_initial_folder(Some(&gio::File::for_path(&home)));
                 }
 
-                // Connect response handler
+                // Show file dialog using async portal
                 let sender_clone = sender.clone();
-                file_chooser.connect_response(move |chooser, response| {
-                    if response == gtk::ResponseType::Accept {
-                        let path = chooser.file().and_then(|f| f.path());
+                file_dialog.open(parent_window.as_ref(), gio::Cancellable::NONE, move |res| {
+                    if let Ok(file) = res {
+                        let path = file.path();
                         sender_clone.input(SettingsMsg::FileSelected(path));
                     }
                 });
-
-                // Show file chooser
-                file_chooser.show();
             }
 
             SettingsMsg::FileSelected(Some(path)) => {

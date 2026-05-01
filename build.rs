@@ -11,7 +11,7 @@ fn main() {
         // Directory with custom icons (if any)
         Some("icons"),
         // List of icons to include
-        ["tag"],
+        Vec::<String>::new(),
     );
 
     // Compile GSettings schemas for local development

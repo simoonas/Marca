@@ -7,12 +7,16 @@ use relm4::prelude::*;
 pub struct BookmarkEditDialog {
     bookmark_id: Option<i64>,
     tags: Vec<String>,
+    all_tags: Vec<String>,
+    suggestions: Vec<String>,
     tags_container: gtk::FlowBox,
     tag_entry: gtk::Entry,
     title_entry: adw::EntryRow,
     url_entry: adw::EntryRow,
     note_view: gtk::TextView,
     dialog: adw::Dialog,
+    suggestion_popover: gtk::Popover,
+    suggestion_list: gtk::ListBox,
 }
 
 #[derive(Debug, Clone)]
@@ -26,6 +30,12 @@ pub struct BookmarkEditInit {
 pub enum BookmarkEditMsg {
     AddTag(String),
     RemoveTag(String),
+    TagInputChanged(String),
+    SelectSuggestion(String),
+    NextSuggestion,
+    PrevSuggestion,
+    AcceptSuggestion,
+    CloseSuggestions,
     Save,
     Cancel,
     DoSaveAfterMetadata {
@@ -184,6 +194,70 @@ impl SimpleComponent for BookmarkEditDialog {
                                 gtk::Entry {
                                     set_placeholder_text: Some("Add tag..."),
                                     set_hexpand: true,
+
+                                    connect_changed[sender] => move |entry| {
+                                        sender.input(BookmarkEditMsg::TagInputChanged(entry.text().to_string()));
+                                    },
+
+                                    add_controller = gtk::EventControllerFocus {
+                                        connect_enter[sender] => move |_| {
+                                            sender.input(BookmarkEditMsg::TagInputChanged("".to_string()));
+                                        },
+                                        connect_leave[sender] => move |_| {
+                                            sender.input(BookmarkEditMsg::CloseSuggestions);
+                                        }
+                                    },
+
+                                    add_controller = gtk::EventControllerKey {
+                                        connect_key_pressed[sender] => move |_, key, _, _| {
+                                            match key {
+                                                gtk::gdk::Key::Down | gtk::gdk::Key::Tab => {
+                                                    sender.input(BookmarkEditMsg::NextSuggestion);
+                                                    gtk::glib::Propagation::Stop
+                                                }
+                                                gtk::gdk::Key::Up => {
+                                                    sender.input(BookmarkEditMsg::PrevSuggestion);
+                                                    gtk::glib::Propagation::Stop
+                                                }
+                                                gtk::gdk::Key::Return => {
+                                                    sender.input(BookmarkEditMsg::AcceptSuggestion);
+                                                    gtk::glib::Propagation::Stop
+                                                }
+                                                _ => gtk::glib::Propagation::Proceed,
+                                            }
+                                        }
+                                    },
+                                },
+
+                                #[name = "suggestion_popover"]
+                                gtk::Popover {
+                                    set_parent: &tag_entry,
+                                    set_autohide: false,
+                                    set_can_focus: false,
+                                    set_has_arrow: false,
+                                    set_halign: gtk::Align::Fill,
+                                    set_hexpand: true,
+                                    add_css_class: "suggestion-popover",
+
+                                    gtk::ScrolledWindow {
+                                        set_propagate_natural_height: true,
+                                        set_max_content_height: 200,
+                                        set_hscrollbar_policy: gtk::PolicyType::Never,
+                                        set_vscrollbar_policy: gtk::PolicyType::Automatic,
+                                        set_hexpand: true,
+
+                                        #[name = "suggestion_list"]
+                                        gtk::ListBox {
+                                            set_selection_mode: gtk::SelectionMode::Single,
+                                            set_hexpand: true,
+                                            add_css_class: "suggestion-list",
+                                            connect_row_activated[sender] => move |_, row| {
+                                                if let Some(label) = row.child().and_then(|c| c.downcast::<gtk::Label>().ok()) {
+                                                    sender.input(BookmarkEditMsg::SelectSuggestion(label.label().to_string()));
+                                                }
+                                            }
+                                        }
+                                    }
                                 },
 
                                 // Pills container (wraps below)
@@ -221,12 +295,16 @@ impl SimpleComponent for BookmarkEditDialog {
         let model = BookmarkEditDialog {
             bookmark_id,
             tags: tags.clone(),
+            all_tags: init.all_tags.iter().map(|t| t.title.clone()).collect(),
+            suggestions: vec![],
             tags_container: gtk::FlowBox::new(),
             tag_entry: gtk::Entry::new(),
             title_entry: adw::EntryRow::new(),
             url_entry: adw::EntryRow::new(),
             note_view: gtk::TextView::new(),
             dialog: root.clone(),
+            suggestion_popover: gtk::Popover::new(),
+            suggestion_list: gtk::ListBox::new(),
         };
 
         let widgets = view_output!();
@@ -240,35 +318,10 @@ impl SimpleComponent for BookmarkEditDialog {
             buffer.set_text(&bookmark.note.clone().unwrap_or_default());
         }
 
-        // Setup autocomplete on tag entry
-        let completion = gtk::EntryCompletion::new();
-        let list_store = gtk::ListStore::new(&[glib::Type::STRING]);
-
-        for tag in &init.all_tags {
-            list_store.set(&list_store.append(), &[(0, &tag.title)]);
-        }
-
-        completion.set_model(Some(&list_store));
-        completion.set_text_column(0);
-        completion.set_inline_completion(true);
-        completion.set_popup_completion(true);
-        widgets.tag_entry.set_completion(Some(&completion));
-
-        // Handle autocomplete selection → AddTag
-        let input_sender = sender.input_sender().clone();
-        completion.connect_match_selected(move |_, model, iter| {
-            let tag = model.get::<String>(iter, 0);
-            let _ = input_sender.send(BookmarkEditMsg::AddTag(tag));
-            glib::Propagation::Stop
-        });
-
         // Handle Enter key → AddTag
         let input_sender = sender.input_sender().clone();
-        widgets.tag_entry.connect_activate(move |entry| {
-            let text = entry.text().to_string();
-            if !text.trim().is_empty() {
-                let _ = input_sender.send(BookmarkEditMsg::AddTag(text.trim().to_string()));
-            }
+        widgets.tag_entry.connect_activate(move |_| {
+            let _ = input_sender.send(BookmarkEditMsg::AcceptSuggestion);
         });
 
         // Update model with real widget references
@@ -279,6 +332,8 @@ impl SimpleComponent for BookmarkEditDialog {
             url_entry: widgets.url_entry.clone(),
             note_view: widgets.note_view.clone(),
             dialog: root.clone(),
+            suggestion_popover: widgets.suggestion_popover.clone(),
+            suggestion_list: widgets.suggestion_list.clone(),
             ..model
         };
 
@@ -290,12 +345,130 @@ impl SimpleComponent for BookmarkEditDialog {
 
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         match msg {
+            BookmarkEditMsg::TagInputChanged(input) => {
+                let input_lower = input.trim().to_lowercase();
+
+                self.suggestions = self
+                    .all_tags
+                    .iter()
+                    .filter(|t| t.to_lowercase().contains(&input_lower))
+                    .filter(|t| !self.tags.contains(t))
+                    .cloned()
+                    .collect();
+
+                if self.suggestions.is_empty() {
+                    self.suggestion_popover.popdown();
+                } else {
+                    // Rebuild suggestion list
+                    while let Some(child) = self.suggestion_list.first_child() {
+                        self.suggestion_list.remove(&child);
+                    }
+
+                    for suggestion in &self.suggestions {
+                        let label = gtk::Label::builder()
+                            .label(suggestion)
+                            .halign(gtk::Align::Start)
+                            .hexpand(true)
+                            .xalign(0.0)
+                            .ellipsize(gtk::pango::EllipsizeMode::End)
+                            .build();
+                        self.suggestion_list.append(&label);
+                    }
+
+                    self.suggestion_list.select_row(None::<&gtk::ListBoxRow>);
+                    self.suggestion_popover.popup();
+                }
+            }
+
+            BookmarkEditMsg::NextSuggestion => {
+                if self.suggestion_popover.is_visible() {
+                    if let Some(row) = self.suggestion_list.selected_row() {
+                        let index = row.index();
+                        if let Some(next_row) = self.suggestion_list.row_at_index(index + 1) {
+                            self.suggestion_list.select_row(Some(&next_row));
+                        } else {
+                            // Wrap to first
+                            self.suggestion_list
+                                .select_row(self.suggestion_list.row_at_index(0).as_ref());
+                        }
+                    } else {
+                        self.suggestion_list
+                            .select_row(self.suggestion_list.row_at_index(0).as_ref());
+                    }
+                }
+            }
+
+            BookmarkEditMsg::PrevSuggestion => {
+                if self.suggestion_popover.is_visible() {
+                    if let Some(row) = self.suggestion_list.selected_row() {
+                        let index = row.index();
+                        if index > 0 {
+                            if let Some(prev_row) = self.suggestion_list.row_at_index(index - 1) {
+                                self.suggestion_list.select_row(Some(&prev_row));
+                            }
+                        } else {
+                            // Wrap to last
+                            let mut last_index = 0;
+                            while self.suggestion_list.row_at_index(last_index + 1).is_some() {
+                                last_index += 1;
+                            }
+                            self.suggestion_list
+                                .select_row(self.suggestion_list.row_at_index(last_index).as_ref());
+                        }
+                    } else {
+                        // Select last
+                        let mut last_index = 0;
+                        while self.suggestion_list.row_at_index(last_index + 1).is_some() {
+                            last_index += 1;
+                        }
+                        self.suggestion_list
+                            .select_row(self.suggestion_list.row_at_index(last_index).as_ref());
+                    }
+                }
+            }
+
+            BookmarkEditMsg::AcceptSuggestion => {
+                if self.suggestion_popover.is_visible() {
+                    if let Some(row) = self.suggestion_list.selected_row() {
+                        if let Some(label) =
+                            row.child().and_then(|c| c.downcast::<gtk::Label>().ok())
+                        {
+                            sender.input(BookmarkEditMsg::SelectSuggestion(
+                                label.label().to_string(),
+                            ));
+                        }
+                    } else {
+                        // Just activate entry
+                        let text = self.tag_entry.text().to_string();
+                        if !text.trim().is_empty() {
+                            sender.input(BookmarkEditMsg::AddTag(text.trim().to_string()));
+                        }
+                    }
+                } else {
+                    // Normal enter
+                    let text = self.tag_entry.text().to_string();
+                    if !text.trim().is_empty() {
+                        sender.input(BookmarkEditMsg::AddTag(text.trim().to_string()));
+                    }
+                }
+            }
+
+            BookmarkEditMsg::CloseSuggestions => {
+                self.suggestion_popover.popdown();
+            }
+
+            BookmarkEditMsg::SelectSuggestion(tag) => {
+                sender.input(BookmarkEditMsg::AddTag(tag));
+                self.suggestion_popover.popdown();
+            }
+
             BookmarkEditMsg::AddTag(tag) => {
                 if !tag.is_empty() && !self.tags.contains(&tag) {
                     self.tags.push(tag);
 
                     // Clear the entry field
                     self.tag_entry.set_text("");
+                    self.suggestion_popover.popdown();
 
                     // Rebuild tag pills
                     Self::rebuild_tag_pills(&self.tags_container, &self.tags, &sender);
