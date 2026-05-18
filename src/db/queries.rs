@@ -1,6 +1,6 @@
 use crate::db::models::{SortDirection, SortField, TagFilterMode, UNTAGGED_TAG_ID};
 use crate::db::{Bookmark, BookmarkWithTags, Tag};
-use rusqlite::{Connection, OptionalExtension, Result, params};
+use rusqlite::{params, Connection, OptionalExtension, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn insert_bookmark(conn: &Connection, bookmark: &Bookmark) -> Result<i64> {
@@ -213,11 +213,29 @@ pub fn search_bookmarks(
 
     let mut where_clauses = vec!["b.deleted = 0".to_string()];
 
+    let mut is_fts_search = false;
     if let Some(search_text) = query {
-        let fts = format!("\"{}\"", search_text.replace("\"", "\"\""));
-        base_select = format!("{} JOIN bookmarks_fts fts ON b.id = fts.rowid", base_select);
-        where_clauses.push("bookmarks_fts MATCH ?".to_string());
-        query_params.push(Box::new(fts));
+        if search_text.chars().count() >= 3 {
+            let fts = format!("\"{}\"", search_text.replace("\"", "\"\""));
+            base_select = format!("{} JOIN bookmarks_fts fts ON b.id = fts.rowid", base_select);
+            where_clauses.push("bookmarks_fts MATCH ?".to_string());
+            query_params.push(Box::new(fts));
+            is_fts_search = true;
+        } else {
+            // Fallback for short queries (1 or 2 characters) since fts trigram requires >= 3
+            // We use ESCAPE '\' for the LIKE clause to handle literal % and _
+            let like_query = format!(
+                "%{}%",
+                search_text
+                    .replace("\\", "\\\\")
+                    .replace("%", "\\%")
+                    .replace("_", "\\_")
+            );
+            where_clauses.push("(b.title LIKE ? ESCAPE '\\' OR b.url LIKE ? ESCAPE '\\' OR b.note LIKE ? ESCAPE '\\')".to_string());
+            query_params.push(Box::new(like_query.clone()));
+            query_params.push(Box::new(like_query.clone()));
+            query_params.push(Box::new(like_query));
+        }
     }
 
     base_select = format!(
@@ -273,12 +291,19 @@ pub fn search_bookmarks(
         }
     }
 
-    let order_clause = if query.is_some() && sort_field == SortField::Relevance {
+    let order_clause = if is_fts_search && sort_field == SortField::Relevance {
         "ORDER BY rank".to_string()
     } else {
+        // If it's a short query (LIKE fallback) but sort_field is Relevance, default to Created
+        let safe_sort_field = if !is_fts_search && sort_field == SortField::Relevance {
+            SortField::Created
+        } else {
+            sort_field
+        };
+
         format!(
             "ORDER BY b.{} {}",
-            sort_field.column_name(),
+            safe_sort_field.column_name(),
             sort_direction.sql_keyword()
         )
     };

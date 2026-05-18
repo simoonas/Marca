@@ -263,7 +263,7 @@ impl SimpleComponent for App {
                                     #[name = "sort_field_button"]
                                     gtk::Button {
                                         set_label: "Created",
-                                        set_width_request: 72,
+                                        set_width_request: 66,
                                         add_css_class: "compact",
                                         connect_clicked[sender] => move |_| {
                                             sender.input(AppMsg::CycleSortField);
@@ -514,18 +514,23 @@ impl SimpleComponent for App {
             AppMsg::BookmarkSearch(query) => {
                 self.bookmark_search = query;
 
+                let is_fts_search = self.bookmark_search.chars().count() >= 3;
+
                 // Auto-switch sort field based on query state
-                if !self.bookmark_search.is_empty() && self.sort_field != SortField::Relevance {
+                if is_fts_search && self.sort_field != SortField::Relevance {
                     // Starting search: switch to Relevance
                     self.sort_field = SortField::Relevance;
                     self.sort_field_button
                         .set_label(self.sort_field.display_name());
-                } else if self.bookmark_search.is_empty() && self.sort_field == SortField::Relevance
-                {
+                    self.sort_field_button.set_width_request(104);
+                    self.sort_direction_button.set_visible(false);
+                } else if !is_fts_search && self.sort_field == SortField::Relevance {
                     // Ending search: switch to Created
                     self.sort_field = SortField::Created;
                     self.sort_field_button
                         .set_label(self.sort_field.display_name());
+                    self.sort_field_button.set_width_request(66);
+                    self.sort_direction_button.set_visible(true);
                 }
 
                 _sender.input(AppMsg::RefreshBookmarks);
@@ -1345,7 +1350,7 @@ impl SimpleComponent for App {
             }
 
             AppMsg::CycleSortField => {
-                let has_query = !self.bookmark_search.is_empty();
+                let has_query = self.bookmark_search.chars().count() >= 3;
                 self.sort_field = self.sort_field.next(has_query);
 
                 // Update field button label
@@ -1355,6 +1360,11 @@ impl SimpleComponent for App {
                 // Update direction button icon based on field type
                 self.sort_direction_button
                     .set_label(self.sort_direction.icon(self.sort_field.is_text()));
+
+                let is_relevance = self.sort_field == SortField::Relevance;
+                self.sort_direction_button.set_visible(!is_relevance);
+                self.sort_field_button
+                    .set_width_request(if is_relevance { 104 } else { 66 });
 
                 _sender.input(AppMsg::RefreshBookmarks);
             }
