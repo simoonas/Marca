@@ -656,13 +656,17 @@ impl BookmarkEditDialog {
         // Recreate pills
         for tag in tags {
             let pill_box = gtk::Box::new(gtk::Orientation::Horizontal, 4);
-            pill_box.add_css_class("pill");
-            pill_box.add_css_class("accent");
+            pill_box.set_css_classes(&["accent", "tag", "pill"]);
             pill_box.set_margin_all(2);
             pill_box.set_hexpand(false);
             pill_box.set_halign(gtk::Align::Start);
 
-            let label = gtk::Label::new(Some(tag));
+            let escaped = gtk::glib::markup_escape_text(tag).to_string();
+            let styled = escaped.replace("/", "<span alpha=\"55%\">\u{2009}/\u{2009}</span>");
+            let label = gtk::Label::builder()
+                .use_markup(true)
+                .label(&styled)
+                .build();
             label.set_margin_start(8);
             label.set_margin_end(2);
             label.set_margin_top(4);

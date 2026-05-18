@@ -151,8 +151,14 @@ impl RelmListItem for BookmarkListItem {
 
             for (idx, tag) in self.tags.iter().enumerate() {
                 if idx < visible_count {
-                    let badge = gtk::Label::new(Some(&format!("#{}", tag.title)));
-                    badge.set_css_classes(&["monospace", "accent", "tag-badge"]);
+                    let escaped = gtk::glib::markup_escape_text(&tag.title).to_string();
+                    let styled =
+                        escaped.replace("/", "<span alpha=\"55%\">\u{2009}/\u{2009}</span>");
+                    let badge = gtk::Label::builder()
+                        .use_markup(true)
+                        .label(&format!("#{}", styled))
+                        .build();
+                    badge.set_css_classes(&["accent", "tag"]);
                     badge.set_margin_start(2);
                     badge.set_margin_end(2);
                     widgets.tags_box.append(&badge);
@@ -163,7 +169,7 @@ impl RelmListItem for BookmarkListItem {
             if self.tags.len() > visible_count {
                 let remaining = self.tags.len() - visible_count;
                 let more_label = gtk::Label::new(Some(&format!("+{}", remaining)));
-                more_label.add_css_class("tag-badge");
+                more_label.add_css_class("tag");
                 more_label.add_css_class("accent");
                 more_label.set_margin_start(2);
                 more_label.set_margin_end(2);

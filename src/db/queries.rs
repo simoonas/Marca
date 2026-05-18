@@ -1,6 +1,6 @@
 use crate::db::models::{SortDirection, SortField, TagFilterMode, UNTAGGED_TAG_ID};
 use crate::db::{Bookmark, BookmarkWithTags, Tag};
-use rusqlite::{params, Connection, OptionalExtension, Result};
+use rusqlite::{Connection, OptionalExtension, Result, params};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn insert_bookmark(conn: &Connection, bookmark: &Bookmark) -> Result<i64> {
@@ -26,6 +26,25 @@ pub fn insert_tag(conn: &Connection, tag: &Tag) -> Result<i64> {
 }
 
 pub fn get_or_create_tag(conn: &Connection, title: &str) -> Result<i64> {
+    // Ensure all ancestor tags exist
+    let parts: Vec<&str> = title.split('/').collect();
+    let mut current_path = String::new();
+
+    // Create all ancestors up to, but not including, the final tag
+    for i in 0..parts.len().saturating_sub(1) {
+        if !current_path.is_empty() {
+            current_path.push('/');
+        }
+        current_path.push_str(parts[i]);
+
+        if let Err(_) = conn.execute(
+            "INSERT OR IGNORE INTO tags (title) VALUES (?1)",
+            params![&current_path],
+        ) {
+            // Ignore error if it already exists
+        }
+    }
+
     let existing: Option<i64> = conn
         .query_row(
             "SELECT id FROM tags WHERE title = ?1",
@@ -155,10 +174,9 @@ pub fn search_bookmarks(
         return get_all_bookmarks(conn, sort_field, sort_direction);
     }
 
-    let mut results = Vec::new();
-
     // Check if untagged is in the tag_ids
     let has_untagged = tag_ids.contains(&UNTAGGED_TAG_ID);
+
     // Regular tag_ids (excluding untagged)
     let regular_tag_ids: Vec<i64> = tag_ids
         .iter()
@@ -166,287 +184,131 @@ pub fn search_bookmarks(
         .filter(|&id| id != UNTAGGED_TAG_ID)
         .collect();
 
+    // Fetch titles for regular_tag_ids for prefix matching
+    let mut selected_tag_titles: Vec<String> = Vec::new();
+    if !regular_tag_ids.is_empty() {
+        let placeholders: Vec<String> = (0..regular_tag_ids.len())
+            .map(|_| "?".to_string())
+            .collect();
+        let query_str = format!(
+            "SELECT title FROM tags WHERE id IN ({})",
+            placeholders.join(",")
+        );
+        let mut stmt = conn.prepare(&query_str)?;
+        let params: Vec<&dyn rusqlite::ToSql> = regular_tag_ids
+            .iter()
+            .map(|id| id as &dyn rusqlite::ToSql)
+            .collect();
+        let iter = stmt.query_map(rusqlite::params_from_iter(params), |row| row.get(0))?;
+        for title in iter {
+            selected_tag_titles.push(title?);
+        }
+    }
+
+    let mut query_params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+    let mut base_select = "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
+                        GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
+                 FROM bookmarks b".to_string();
+
+    let mut where_clauses = vec!["b.deleted = 0".to_string()];
+
     if let Some(search_text) = query {
-        // Enclose query in quotes for exact substring match across multiple words, escaping internal quotes
-        let fts_query = format!("\"{}\"", search_text.replace("\"", "\"\""));
+        let fts = format!("\"{}\"", search_text.replace("\"", "\"\""));
+        base_select = format!("{} JOIN bookmarks_fts fts ON b.id = fts.rowid", base_select);
+        where_clauses.push("bookmarks_fts MATCH ?".to_string());
+        query_params.push(Box::new(fts));
+    }
 
-        // Determine order clause based on sort field
-        let order_clause = if sort_field == SortField::Relevance {
-            "ORDER BY rank".to_string()
+    base_select = format!(
+        "{}
+         LEFT JOIN favicons f ON b.favicon_hash = f.hash
+         LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
+         LEFT JOIN tags t ON bt.tag_id = t.id",
+        base_select
+    );
+
+    if tag_ids.is_empty() {
+        // No tag filtering needed
+    } else if has_untagged && regular_tag_ids.is_empty() {
+        // Only untagged is selected
+        where_clauses.push(
+            "NOT EXISTS (SELECT 1 FROM bookmark_tags bt2 WHERE bt2.bookmark_id = b.id)".to_string(),
+        );
+    } else if has_untagged && !regular_tag_ids.is_empty() {
+        // Untagged + other tags (Any mode only usually, but we handle it as OR)
+        let mut tag_conditions = Vec::new();
+        for title in &selected_tag_titles {
+            tag_conditions.push("(t2.title = ? OR t2.title LIKE ? || '/%')".to_string());
+            query_params.push(Box::new(title.clone()));
+            query_params.push(Box::new(title.clone()));
+        }
+
+        where_clauses.push(format!(
+            "(NOT EXISTS (SELECT 1 FROM bookmark_tags bt2 WHERE bt2.bookmark_id = b.id) OR EXISTS (SELECT 1 FROM bookmark_tags bt2 JOIN tags t2 ON bt2.tag_id = t2.id WHERE bt2.bookmark_id = b.id AND ({})))",
+            tag_conditions.join(" OR ")
+        ));
+    } else {
+        // Regular tags only
+        if tag_filter_mode == TagFilterMode::Any {
+            let mut tag_conditions = Vec::new();
+            for title in &selected_tag_titles {
+                tag_conditions.push("(t2.title = ? OR t2.title LIKE ? || '/%')".to_string());
+                query_params.push(Box::new(title.clone()));
+                query_params.push(Box::new(title.clone()));
+            }
+            where_clauses.push(format!(
+                "EXISTS (SELECT 1 FROM bookmark_tags bt2 JOIN tags t2 ON bt2.tag_id = t2.id WHERE bt2.bookmark_id = b.id AND ({}))",
+                tag_conditions.join(" OR ")
+            ));
         } else {
-            format!(
-                "ORDER BY b.{} {}",
-                sort_field.column_name(),
-                sort_direction.sql_keyword()
-            )
-        };
-
-        if tag_ids.is_empty() {
-            let query_str = format!(// TODO: skip content
-                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
-                        GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
-                 FROM bookmarks_fts fts
-                 JOIN bookmarks b ON b.id = fts.rowid
-                 LEFT JOIN favicons f ON b.favicon_hash = f.hash
-                 LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
-                 LEFT JOIN tags t ON bt.tag_id = t.id
-                 WHERE bookmarks_fts MATCH ?1 AND b.deleted = 0
-                 GROUP BY b.id
-                 {}",
-                order_clause
-            );
-
-            let mut stmt = conn.prepare(&query_str)?;
-
-            let bookmark_iter =
-                stmt.query_map(params![fts_query], map_bookmark_with_favicon_and_tags)?;
-
-            for result in bookmark_iter {
-                let (bookmark, favicon_data, tags) = result?;
-                results.push(BookmarkWithTags {
-                    bookmark,
-                    tags,
-                    favicon_data,
-                });
-            }
-        } else if has_untagged && regular_tag_ids.is_empty() {
-            // Only untagged is selected: show bookmarks with no tags
-            let query_str = format!(// TODO: skip content
-                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
-                        GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
-                 FROM bookmarks b
-                 JOIN bookmarks_fts fts ON b.id = fts.rowid
-                 LEFT JOIN favicons f ON b.favicon_hash = f.hash
-                 LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
-                 LEFT JOIN tags t ON bt.tag_id = t.id
-                 WHERE bookmarks_fts MATCH ?1
-                    AND NOT EXISTS (
-                        SELECT 1 FROM bookmark_tags bt
-                        WHERE bt.bookmark_id = b.id
-                    )
-                    AND b.deleted = 0
-                 GROUP BY b.id
-                 {}",
-                order_clause
-            );
-
-            let mut stmt = conn.prepare(&query_str)?;
-            let bookmark_iter =
-                stmt.query_map(params![fts_query], map_bookmark_with_favicon_and_tags)?;
-
-            for result in bookmark_iter {
-                let (bookmark, favicon_data, tags) = result?;
-                results.push(BookmarkWithTags {
-                    bookmark,
-                    tags,
-                    favicon_data,
-                });
-            }
-        } else if has_untagged && !regular_tag_ids.is_empty() {
-            // Untagged + other tags: match bookmarks with any selected tags OR no tags (Any mode only)
-            let regular_tag_ids_json = serde_json::to_string(&regular_tag_ids).unwrap();
-            let query_str = format!(
-                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
-                        GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
-                 FROM bookmarks b
-                 JOIN bookmarks_fts fts ON b.id = fts.rowid
-                 LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
-                 LEFT JOIN favicons f ON b.favicon_hash = f.hash
-                 LEFT JOIN tags t ON bt.tag_id = t.id
-                 WHERE bookmarks_fts MATCH ?1
-                    AND (NOT EXISTS
-                            (SELECT 1 FROM bookmark_tags bt2
-                            WHERE bt2.bookmark_id = b.id)
-                    OR b.id IN (SELECT bt3.bookmark_id FROM bookmark_tags bt3 WHERE bt3.tag_id IN (SELECT value FROM json_each(?2)))) AND b.deleted = 0
-                 GROUP BY b.id
-                 {}",
-                order_clause
-            );
-
-            let mut stmt = conn.prepare(&query_str)?;
-            let bookmark_iter = stmt.query_map(
-                params![fts_query, regular_tag_ids_json],
-                map_bookmark_with_favicon_and_tags,
-            )?;
-
-            for result in bookmark_iter {
-                let (bookmark, favicon_data, tags) = result?;
-                results.push(BookmarkWithTags {
-                    bookmark,
-                    tags,
-                    favicon_data,
-                });
-            }
-        } else {
-            // Regular tags only (no untagged)
-            let tag_ids_json = serde_json::to_string(&regular_tag_ids).unwrap();
-            let inner_having = match tag_filter_mode {
-                TagFilterMode::All => "HAVING COUNT(bt2.tag_id) = ?3",
-                TagFilterMode::Any => "HAVING COUNT(bt2.tag_id) >= 1",
-            };
-            let query_str = format!(
-                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
-                        GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
-                 FROM bookmarks b
-                 JOIN bookmarks_fts fts ON b.id = fts.rowid
-                 LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
-                 LEFT JOIN favicons f ON b.favicon_hash = f.hash
-                 LEFT JOIN tags t ON bt.tag_id = t.id
-                 WHERE bookmarks_fts MATCH ?1 
-                   AND b.id IN (
-                       SELECT bt2.bookmark_id FROM bookmark_tags bt2 
-                       WHERE bt2.tag_id IN (SELECT value FROM json_each(?2))
-                       GROUP BY bt2.bookmark_id
-                       {}
-                   )
-                   AND b.deleted = 0
-                 GROUP BY b.id
-                 {}",
-                inner_having,
-                order_clause
-            );
-
-            let mut stmt = conn.prepare(&query_str)?;
-
-            let bookmark_iter = if tag_filter_mode == TagFilterMode::All {
-                stmt.query_map(
-                    params![fts_query, tag_ids_json, regular_tag_ids.len()],
-                    map_bookmark_with_favicon_and_tags,
-                )?
-            } else {
-                stmt.query_map(
-                    params![fts_query, tag_ids_json],
-                    map_bookmark_with_favicon_and_tags,
-                )?
-            };
-
-            for result in bookmark_iter {
-                let (bookmark, favicon_data, tags) = result?;
-                results.push(BookmarkWithTags {
-                    bookmark,
-                    tags,
-                    favicon_data,
-                });
+            // All mode
+            for title in &selected_tag_titles {
+                where_clauses.push(
+                    "EXISTS (SELECT 1 FROM bookmark_tags bt2 JOIN tags t2 ON bt2.tag_id = t2.id WHERE bt2.bookmark_id = b.id AND (t2.title = ? OR t2.title LIKE ? || '/%'))".to_string()
+                );
+                query_params.push(Box::new(title.clone()));
+                query_params.push(Box::new(title.clone()));
             }
         }
+    }
+
+    let order_clause = if query.is_some() && sort_field == SortField::Relevance {
+        "ORDER BY rank".to_string()
     } else {
-        let order_clause = format!(
+        format!(
             "ORDER BY b.{} {}",
             sort_field.column_name(),
             sort_direction.sql_keyword()
-        );
+        )
+    };
 
-        if has_untagged && regular_tag_ids.is_empty() {
-            // Only untagged is selected: show bookmarks with no tags
-            let query_str = format!(
-                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
-                        GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
-                 FROM bookmarks b
-                 LEFT JOIN favicons f ON b.favicon_hash = f.hash
-                 LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
-                 LEFT JOIN tags t ON bt.tag_id = t.id
-                 WHERE NOT EXISTS (
-                        SELECT 1 FROM bookmark_tags bt
-                        WHERE bt.bookmark_id = b.id)
-                 AND b.deleted = 0
-                 GROUP BY b.id
-                 {}",
-                order_clause
-            );
+    let final_query = format!(
+        "{} WHERE {} GROUP BY b.id {}",
+        base_select,
+        where_clauses.join(" AND "),
+        order_clause
+    );
 
-            let mut stmt = conn.prepare(&query_str)?;
-            let bookmark_iter = stmt.query_map([], map_bookmark_with_favicon_and_tags)?;
+    let mut stmt = conn.prepare(&final_query)?;
 
-            for result in bookmark_iter {
-                let (bookmark, favicon_data, tags) = result?;
-                results.push(BookmarkWithTags {
-                    bookmark,
-                    tags,
-                    favicon_data,
-                });
-            }
-        } else if has_untagged && !regular_tag_ids.is_empty() {
-            // Untagged + other tags: match bookmarks with any selected tags OR no tags (Any mode only)
-            let regular_tag_ids_json = serde_json::to_string(&regular_tag_ids).unwrap();
-            let query_str = format!(
-                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
-                        GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
-                 FROM bookmarks b
-                 LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
-                 LEFT JOIN favicons f ON b.favicon_hash = f.hash
-                 LEFT JOIN tags t ON bt.tag_id = t.id
-                 WHERE (
-                    NOT EXISTS (
-                        SELECT 1 FROM bookmark_tags bt2
-                        WHERE bt2.bookmark_id = b.id
-                    )
-                    OR b.id IN (SELECT bt3.bookmark_id FROM bookmark_tags bt3 WHERE bt3.tag_id IN (SELECT value FROM json_each(?1))))
-                    AND b.deleted = 0
-                 GROUP BY b.id
-                 {}",
-                order_clause
-            );
+    let params: Vec<&dyn rusqlite::ToSql> = query_params
+        .iter()
+        .map(|p| &**p as &dyn rusqlite::ToSql)
+        .collect();
+    let bookmark_iter = stmt.query_map(
+        rusqlite::params_from_iter(params),
+        map_bookmark_with_favicon_and_tags,
+    )?;
 
-            let mut stmt = conn.prepare(&query_str)?;
-            let bookmark_iter = stmt.query_map(
-                params![regular_tag_ids_json],
-                map_bookmark_with_favicon_and_tags,
-            )?;
-
-            for result in bookmark_iter {
-                let (bookmark, favicon_data, tags) = result?;
-                results.push(BookmarkWithTags {
-                    bookmark,
-                    tags,
-                    favicon_data,
-                });
-            }
-        } else {
-            // Regular tags only (no untagged)
-            let tag_ids_json = serde_json::to_string(&regular_tag_ids).unwrap();
-            let inner_having = match tag_filter_mode {
-                TagFilterMode::All => "HAVING COUNT(bt2.tag_id) = ?2",
-                TagFilterMode::Any => "HAVING COUNT(bt2.tag_id) >= 1",
-            };
-            let query_str = format!(
-                "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
-                        GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
-                 FROM bookmarks b
-                 LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
-                 LEFT JOIN favicons f ON b.favicon_hash = f.hash
-                 LEFT JOIN tags t ON bt.tag_id = t.id
-                 WHERE b.id IN (
-                     SELECT bt2.bookmark_id FROM bookmark_tags bt2 
-                     WHERE bt2.tag_id IN (SELECT value FROM json_each(?1))
-                     GROUP BY bt2.bookmark_id
-                     {}
-                 ) AND b.deleted = 0
-                 GROUP BY b.id
-                 {}",
-                inner_having,
-                order_clause
-            );
-
-            let mut stmt = conn.prepare(&query_str)?;
-
-            let bookmark_iter = if tag_filter_mode == TagFilterMode::All {
-                stmt.query_map(
-                    params![tag_ids_json, regular_tag_ids.len()],
-                    map_bookmark_with_favicon_and_tags,
-                )?
-            } else {
-                stmt.query_map(params![tag_ids_json], map_bookmark_with_favicon_and_tags)?
-            };
-
-            for result in bookmark_iter {
-                let (bookmark, favicon_data, tags) = result?;
-                results.push(BookmarkWithTags {
-                    bookmark,
-                    tags,
-                    favicon_data,
-                });
-            }
-        }
+    let mut results = Vec::new();
+    for result in bookmark_iter {
+        let (bookmark, favicon_data, tags) = result?;
+        results.push(BookmarkWithTags {
+            bookmark,
+            tags,
+            favicon_data,
+        });
     }
 
     Ok(results)
@@ -481,8 +343,43 @@ pub fn rename_tag(conn: &Connection, id: i64, new_title: &str) -> Result<()> {
 
 pub fn delete_tag(conn: &Connection, id: i64) -> Result<()> {
     let tx = conn.unchecked_transaction()?;
-    tx.execute("DELETE FROM tags WHERE id = ?1", params![id])?;
+
+    // First get the title of the tag so we can delete children
+    let title: String =
+        tx.query_row("SELECT title FROM tags WHERE id = ?1", params![id], |row| {
+            row.get(0)
+        })?;
+
+    // Delete the tag and any children (title LIKE 'title/%')
+    // ON DELETE CASCADE will handle bookmark_tags
+    tx.execute(
+        "DELETE FROM tags WHERE id = ?1 OR title LIKE ?2",
+        params![id, format!("{}/%", title)],
+    )?;
+
     tx.commit()?;
+    Ok(())
+}
+
+pub fn cleanup_orphan_tags(conn: &Connection) -> Result<()> {
+    loop {
+        // Delete tags that:
+        // 1. Have no bookmarks
+        // 2. Have no child tags (title LIKE tag.title || '/%')
+        let deleted = conn.execute(
+            "DELETE FROM tags 
+             WHERE id NOT IN (SELECT tag_id FROM bookmark_tags)
+               AND NOT EXISTS (
+                   SELECT 1 FROM tags child 
+                   WHERE child.title LIKE tags.title || '/%'
+               )",
+            [],
+        )?;
+
+        if deleted == 0 {
+            break;
+        }
+    }
     Ok(())
 }
 
@@ -504,6 +401,7 @@ pub fn update_bookmark_tags(
     }
 
     tx.commit()?;
+    cleanup_orphan_tags(conn)?;
     Ok(())
 }
 
@@ -516,6 +414,7 @@ pub fn delete_bookmark(conn: &Connection, id: i64) -> Result<()> {
         "UPDATE bookmarks SET deleted = 1, changed = ?1 WHERE id = ?2",
         params![now, id],
     )?;
+    cleanup_orphan_tags(conn)?;
     Ok(())
 }
 

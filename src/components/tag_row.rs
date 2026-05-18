@@ -18,6 +18,17 @@ impl TagRow {
             format!("#{}", self.tag.title)
         }
     }
+
+    pub fn display_markup(&self) -> String {
+        if self.tag.id == Some(UNTAGGED_TAG_ID) {
+            gtk::glib::markup_escape_text(&self.tag.title).to_string()
+        } else {
+            let escaped = gtk::glib::markup_escape_text(&self.tag.title).to_string();
+            // Pango markup: slightly space the slash and dim it
+            let styled = escaped.replace("/", "<span alpha=\"55%\">\u{2009}/\u{2009}</span>");
+            format!("#{}", styled)
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -80,12 +91,13 @@ impl FactoryComponent for TagRow {
                 #[name = "label"]
                 gtk::Label {
                     #[watch]
-                    set_label: &self.display_title(),
+                    set_label: &self.display_markup(),
+                    set_use_markup: true,
                     #[watch]
                     set_visible: !self.is_editing,
                     set_halign: gtk::Align::Start,
                     set_hexpand: true,
-                    set_css_classes: &["monospace", "tag"],
+                    set_css_classes: &["tag"],
                     #[watch]
                     set_class_active: ("untagged-tag-label", self.tag.id == Some(UNTAGGED_TAG_ID)),
                 },

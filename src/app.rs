@@ -483,7 +483,7 @@ impl SimpleComponent for App {
              button.compact { padding: 0; margin: 0; min-height: 24px; font-size: 0.85em; }
             .untagged-tag:not(:hover) { background-color: var(--accent-teal); }
             .untagged-tag:not(:hover) .untagged-tag-label { color: white; }
-            .tag { font-weight: 400; font-family: 'Adwaita Sans'; }
+            .tag { font-weight: 750; font-family: 'Adwaita Sans'; }
              .hotkey-shortcut { font-size: 0.8em; padding: 0; margin: 0; }
              actionbar > revealer { min-height: 0; }
             .actionbar-btn { margin-end: 0; }
@@ -610,7 +610,7 @@ impl SimpleComponent for App {
                         // Add synthetic "Untagged" tag for bookmarks without tags
                         let untagged_tag = crate::db::Tag {
                             id: Some(UNTAGGED_TAG_ID),
-                            title: "not #tagged".to_string(),
+                            title: "NOT #TAGGED".to_string(),
                         };
                         tags.push(untagged_tag);
                         // Sort tags alphabetically (Untagged will be last due to 'U')
