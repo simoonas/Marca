@@ -6,8 +6,8 @@ pub mod import;
 mod icon_names {
     include!(concat!(env!("OUT_DIR"), "/icon_names.rs"));
 }
-use relm4::RelmApp;
 use adw::prelude::*;
+use relm4::RelmApp;
 
 fn main() {
     relm4_icons::initialize_icons(icon_names::GRESOURCE_BYTES, icon_names::RESOURCE_PREFIX);
@@ -22,15 +22,18 @@ fn main() {
     if schema_exists {
         let settings = adw::gio::Settings::new("io.github.simoonas.marca");
         let gc_days = settings.int("gc-days");
-        if gc_days > 0 {
-            if let Ok(deleted_count) = db.gc_deleted_bookmarks(gc_days as u32) {
-                if deleted_count > 0 {
-                    eprintln!("Garbage collected {} deleted bookmarks older than {} days", deleted_count, gc_days);
+        if gc_days > 0
+            && let Ok(deleted_count) = db.gc_deleted_bookmarks(gc_days as u32)
+                && deleted_count > 0 {
+                    eprintln!(
+                        "Garbage collected {} deleted bookmarks older than {} days",
+                        deleted_count, gc_days
+                    );
                 }
-            }
-        }
     } else {
-        eprintln!("GSettings schema 'io.github.simoonas.marca' not found. Skipping garbage collection.");
+        eprintln!(
+            "GSettings schema 'io.github.simoonas.marca' not found. Skipping garbage collection."
+        );
     }
 
     // Run the application

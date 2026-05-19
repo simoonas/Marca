@@ -1,5 +1,5 @@
-use crate::db::{queries, Bookmark};
-use rusqlite::{params, Connection, OptionalExtension, Result};
+use crate::db::{Bookmark, queries};
+use rusqlite::{Connection, OptionalExtension, Result, params};
 
 #[derive(Debug, Clone)]
 pub struct ImportResult {

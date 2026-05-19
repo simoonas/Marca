@@ -11,28 +11,36 @@ pub struct QuickMetadata {
 
 /// Fetch title and description quickly (5s timeout)
 /// Does NOT fetch favicon - that should be done async after dialog closes
-pub async fn fetch_quick_metadata(url: &str) -> Result<QuickMetadata, Box<dyn Error + Send + Sync>> {
+pub async fn fetch_quick_metadata(
+    url: &str,
+) -> Result<QuickMetadata, Box<dyn Error + Send + Sync>> {
     let url_string = url.to_string();
-    
+
     // Use tokio timeout for the entire operation
-    tokio::time::timeout(Duration::from_secs(5), tokio::task::spawn_blocking(move || {
-        // Try to fetch and extract using readability
-        match scrape(&url_string) {
-            Ok(product) => {
-                let title = if !product.title.is_empty() {
-                    product.title
-                } else {
-                    extract_domain_from_url(&url_string)
-                };
-                let description = extract_description_from_text(&product.text);
-                Ok::<_, Box<dyn Error + Send + Sync>>(QuickMetadata { title, description })
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        tokio::task::spawn_blocking(move || {
+            // Try to fetch and extract using readability
+            match scrape(&url_string) {
+                Ok(product) => {
+                    let title = if !product.title.is_empty() {
+                        product.title
+                    } else {
+                        extract_domain_from_url(&url_string)
+                    };
+                    let description = extract_description_from_text(&product.text);
+                    Ok::<_, Box<dyn Error + Send + Sync>>(QuickMetadata { title, description })
+                }
+                Err(_e) => {
+                    let title = extract_domain_from_url(&url_string);
+                    Ok::<_, Box<dyn Error + Send + Sync>>(QuickMetadata {
+                        title,
+                        description: None,
+                    })
+                }
             }
-            Err(_e) => {
-                let title = extract_domain_from_url(&url_string);
-                Ok::<_, Box<dyn Error + Send + Sync>>(QuickMetadata { title, description: None })
-            }
-        }
-    }))
+        }),
+    )
     .await
     .map_err(|_| "Timeout fetching metadata".into())
     .and_then(|r| r.map_err(|e| e.into()))
@@ -44,39 +52,42 @@ fn calculate_favicon_hash(data: &[u8]) -> i32 {
     murmur3::murmur3_32(&mut Cursor::new(data), 0).unwrap_or(0) as i32
 }
 
-/// Fetch favicon synchronously for full URL (not domain)
+/// Fetch favicon synchronously for the domain
 /// Returns (hash, data) tuple
 pub fn fetch_favicon_sync(url: &str) -> Option<(i32, Vec<u8>)> {
+    let parsed = url::Url::parse(url).ok()?;
+    let base_url = format!("{}://{}", parsed.scheme(), parsed.host_str()?);
+
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(10))
         .user_agent("Mozilla/5.0 (X11; Linux x86_64; rv:128.0) Gecko/20100101 Firefox/128.0")
         .build()
         .ok()?;
-    
-    // 1. Try Google s2/favicons first (sz=128) with FULL URL
-    if let Some(data) = try_google_favicon_sync(&client, url) {
+
+    // 1. Try Google s2/favicons first (sz=128) with the base URL
+    if let Some(data) = try_google_favicon_sync(&client, &base_url) {
         let hash = calculate_favicon_hash(&data);
         return Some((hash, data));
     }
-    
-    // 2. Try HTML <link> extraction
-    if let Some(data) = try_html_favicon_sync(&client, url) {
+
+    // 2. Try HTML <link> extraction from the root domain
+    if let Some(data) = try_html_favicon_sync(&client, &base_url) {
         let hash = calculate_favicon_hash(&data);
         return Some((hash, data));
     }
-    
+
     // 3. Try favicon.ico as last resort
-    if let Some(data) = try_favicon_ico_sync(&client, url) {
+    if let Some(data) = try_favicon_ico_sync(&client, &base_url) {
         let hash = calculate_favicon_hash(&data);
         return Some((hash, data));
     }
-    
+
     None
 }
 
 fn try_google_favicon_sync(client: &reqwest::blocking::Client, url: &str) -> Option<Vec<u8>> {
     let fetch_url = format!("https://www.google.com/s2/favicons?domain={}&sz=128", url);
-    
+
     let response = client.get(&fetch_url).send().ok()?;
     if response.status().is_success() {
         let bytes = response.bytes().ok()?.to_vec();
@@ -90,10 +101,10 @@ fn try_google_favicon_sync(client: &reqwest::blocking::Client, url: &str) -> Opt
 fn try_html_favicon_sync(client: &reqwest::blocking::Client, url: &str) -> Option<Vec<u8>> {
     let response = client.get(url).send().ok()?;
     let html = response.text().ok()?;
-    
+
     let favicon_href = extract_favicon_url_from_html(&html)?;
     let favicon_url = resolve_url(url, &favicon_href);
-    
+
     let response = client.get(&favicon_url).send().ok()?;
     if response.status().is_success() {
         let bytes = response.bytes().ok()?.to_vec();
@@ -108,7 +119,7 @@ fn try_favicon_ico_sync(client: &reqwest::blocking::Client, url: &str) -> Option
     let parsed = url::Url::parse(url).ok()?;
     let base = format!("{}://{}", parsed.scheme(), parsed.host_str()?);
     let favicon_url = format!("{}/favicon.ico", base);
-    
+
     let response = client.get(&favicon_url).send().ok()?;
     if response.status().is_success() {
         let bytes = response.bytes().ok()?.to_vec();
@@ -145,17 +156,15 @@ fn extract_favicon_url_from_html(html: &str) -> Option<String> {
         r#"<link[^>]*rel="apple-touch-icon"[^>]*href="([^"]+)"#,
         r#"<link[^>]*href="([^"]+)"[^>]*rel="apple-touch-icon""#,
     ];
-    
+
     for pattern in &patterns {
-        if let Ok(re) = regex::Regex::new(pattern) {
-            if let Some(caps) = re.captures(html) {
-                if let Some(url) = caps.get(1) {
+        if let Ok(re) = regex::Regex::new(pattern)
+            && let Some(caps) = re.captures(html)
+                && let Some(url) = caps.get(1) {
                     return Some(url.as_str().to_string());
                 }
-            }
-        }
     }
-    
+
     None
 }
 
@@ -163,16 +172,16 @@ fn extract_description_from_text(text: &str) -> Option<String> {
     if text.is_empty() {
         return None;
     }
-    
+
     let cleaned = text
         .lines()
         .map(|line| line.trim())
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()
         .join(" ");
-    
+
     let max_len = 300;
-    
+
     if cleaned.len() > max_len {
         if let Some(period_pos) = cleaned[..max_len]
             .rfind('.')
@@ -192,12 +201,20 @@ fn extract_description_from_text(text: &str) -> Option<String> {
 }
 
 /// Extract domain name from URL as fallback title
-fn extract_domain_from_url(url: &str) -> String {
-    if let Ok(parsed) = url::Url::parse(url) {
-        if let Some(host) = parsed.host_str() {
+pub fn extract_domain_from_url(url: &str) -> String {
+    if let Ok(parsed) = url::Url::parse(url)
+        && let Some(host) = parsed.host_str() {
             let domain = host.strip_prefix("www.").unwrap_or(host);
             return domain.to_string();
         }
-    }
     url.to_string()
+}
+
+pub fn extract_domain(url: &str) -> Option<String> {
+    if let Ok(parsed) = url::Url::parse(url)
+        && let Some(host) = parsed.host_str() {
+            let domain = host.strip_prefix("www.").unwrap_or(host);
+            return Some(domain.to_string());
+        }
+    None
 }

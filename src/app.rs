@@ -557,8 +557,8 @@ impl SimpleComponent for App {
 
             AppMsg::TagToggled(tag_id) => {
                 let mut focus_search = false;
-                if let Some(focused) = gtk::prelude::RootExt::focus(&self.window) {
-                    if let Some(row) = focused
+                if let Some(focused) = gtk::prelude::RootExt::focus(&self.window)
+                    && let Some(row) = focused
                         .ancestor(gtk::ListBoxRow::static_type())
                         .and_downcast::<gtk::ListBoxRow>()
                     {
@@ -571,13 +571,10 @@ impl SimpleComponent for App {
                             }
                         } else if row_widget
                             .is_ancestor(self.unpinned_tags.widget().upcast_ref::<gtk::Widget>())
-                        {
-                            if self.unpinned_tags.guard().len() == 1 {
+                            && self.unpinned_tags.guard().len() == 1 {
                                 focus_search = true;
                             }
-                        }
                     }
-                }
 
                 // Toggle pin state
                 if let Some(pos) = self.pinned_tag_ids.iter().position(|&id| id == tag_id) {
@@ -841,6 +838,16 @@ impl SimpleComponent for App {
                         let toast = adw::Toast::new("Bookmark updated");
                         self.toast_overlay.add_toast(toast);
 
+                        // Fast path: reuse existing favicon hash for this domain
+                        if let Some(domain) = crate::fetch_metadata::extract_domain(&url)
+                            && let Ok(Some(hash)) = self.db.get_favicon_hash_for_domain(&domain) {
+                                if let Err(e) = self.db.update_bookmark_favicon_hash(id, hash) {
+                                    eprintln!("Error updating bookmark favicon hash: {}", e);
+                                }
+                                _sender.input(AppMsg::RefreshBookmarks);
+                                return;
+                            }
+
                         // Spawn async favicon fetch AFTER dialog closed (non-blocking)
                         let url_clone = url.clone();
                         let sender_clone = _sender.clone();
@@ -915,6 +922,18 @@ impl SimpleComponent for App {
                         // Show success toast
                         let toast = adw::Toast::new("Bookmark created");
                         self.toast_overlay.add_toast(toast);
+
+                        // Fast path: reuse existing favicon hash for this domain
+                        if let Some(domain) = crate::fetch_metadata::extract_domain(&url)
+                            && let Ok(Some(hash)) = self.db.get_favicon_hash_for_domain(&domain) {
+                                if let Err(e) =
+                                    self.db.update_bookmark_favicon_hash(bookmark_id, hash)
+                                {
+                                    eprintln!("Error updating bookmark favicon hash: {}", e);
+                                }
+                                _sender.input(AppMsg::RefreshBookmarks);
+                                return;
+                            }
 
                         // Spawn async favicon fetch AFTER dialog closed (non-blocking)
                         let url_clone = url.clone();
@@ -1060,13 +1079,12 @@ impl SimpleComponent for App {
                         if focused_widget == bms_widget || focused_widget.is_ancestor(bms_widget) {
                             // Get the selected item from the SingleSelection model
                             let selected = self.bookmarks.selection_model.selected();
-                            if selected != gtk::INVALID_LIST_POSITION {
-                                if let Some(item) = self.bookmarks.get_visible(selected) {
+                            if selected != gtk::INVALID_LIST_POSITION
+                                && let Some(item) = self.bookmarks.get_visible(selected) {
                                     let bookmark_ref: std::cell::Ref<'_, BookmarkListItem> =
                                         item.borrow();
                                     focused_bookmark_id = bookmark_ref.bookmark.id;
                                 }
-                            }
                         }
                     }
 
@@ -1079,8 +1097,8 @@ impl SimpleComponent for App {
                     {
                         let mut actions = vec![];
 
-                        if let Some(id) = focused_tag_id {
-                            if id != UNTAGGED_TAG_ID {
+                        if let Some(id) = focused_tag_id
+                            && id != UNTAGGED_TAG_ID {
                                 actions.push(HotkeyAction {
                                     id: 2,
                                     label: "Edit tag".to_string(),
@@ -1092,7 +1110,6 @@ impl SimpleComponent for App {
                                     accelerator: "<Ctrl>d".to_string(),
                                 });
                             }
-                        }
 
                         actions.push(HotkeyAction {
                             id: 0,
@@ -1111,7 +1128,7 @@ impl SimpleComponent for App {
                         {
                             let mut actions = vec![];
 
-                            if let Some(_) = focused_bookmark_id {
+                            if focused_bookmark_id.is_some() {
                                 actions.push(HotkeyAction {
                                     id: 4,
                                     label: "Edit".to_string(),
@@ -1429,8 +1446,8 @@ impl SimpleComponent for App {
                 let pinned_widget = self.pinned_tags.widget().clone();
                 let unpinned_widget = self.unpinned_tags.widget().clone();
 
-                if let Some(focused) = gtk::prelude::RootExt::focus(&window) {
-                    if let Some(row) = focused
+                if let Some(focused) = gtk::prelude::RootExt::focus(&window)
+                    && let Some(row) = focused
                         .ancestor(gtk::ListBoxRow::static_type())
                         .and_then(|a| a.downcast::<gtk::ListBoxRow>().ok())
                     {
@@ -1450,7 +1467,6 @@ impl SimpleComponent for App {
                             is_unpinned = true;
                         }
                     }
-                }
 
                 if is_pinned {
                     self.pinned_tags
@@ -1468,8 +1484,8 @@ impl SimpleComponent for App {
                 let pinned_widget = self.pinned_tags.widget().clone();
                 let unpinned_widget = self.unpinned_tags.widget().clone();
 
-                if let Some(focused) = gtk::prelude::RootExt::focus(&window) {
-                    if let Some(row) = focused
+                if let Some(focused) = gtk::prelude::RootExt::focus(&window)
+                    && let Some(row) = focused
                         .ancestor(gtk::ListBoxRow::static_type())
                         .and_then(|a| a.downcast::<gtk::ListBoxRow>().ok())
                     {
@@ -1486,8 +1502,8 @@ impl SimpleComponent for App {
                                 == Some(unpinned_widget.upcast_ref::<gtk::Widget>());
 
                         if is_pinned {
-                            if let Some(tag) = self.pinned_tags.guard().get(row_idx) {
-                                if let Some(tag_id) = tag.tag.id {
+                            if let Some(tag) = self.pinned_tags.guard().get(row_idx)
+                                && let Some(tag_id) = tag.tag.id {
                                     match self.db.delete_tag(tag_id) {
                                         Ok(_) => {
                                             let toast = adw::Toast::new("Tag deleted");
@@ -1504,10 +1520,9 @@ impl SimpleComponent for App {
                                         }
                                     }
                                 }
-                            }
-                        } else if is_unpinned {
-                            if let Some(tag) = self.unpinned_tags.guard().get(row_idx) {
-                                if let Some(tag_id) = tag.tag.id {
+                        } else if is_unpinned
+                            && let Some(tag) = self.unpinned_tags.guard().get(row_idx)
+                                && let Some(tag_id) = tag.tag.id {
                                     match self.db.delete_tag(tag_id) {
                                         Ok(_) => {
                                             let toast = adw::Toast::new("Tag deleted");
@@ -1524,10 +1539,7 @@ impl SimpleComponent for App {
                                         }
                                     }
                                 }
-                            }
-                        }
                     }
-                }
             }
 
             AppMsg::EditFocusedBookmark => {
@@ -1538,15 +1550,14 @@ impl SimpleComponent for App {
                     let focused_widget = focused.upcast_ref::<gtk::Widget>();
                     if focused_widget == bms_widget || focused_widget.is_ancestor(bms_widget) {
                         let selected = self.bookmarks.selection_model.selected();
-                        if selected != gtk::INVALID_LIST_POSITION {
-                            if let Some(item) = self.bookmarks.get_visible(selected) {
+                        if selected != gtk::INVALID_LIST_POSITION
+                            && let Some(item) = self.bookmarks.get_visible(selected) {
                                 let bookmark_ref: std::cell::Ref<'_, BookmarkListItem> =
                                     item.borrow();
                                 if let Some(id) = bookmark_ref.bookmark.id {
                                     _sender.input(AppMsg::EditBookmark(id));
                                 }
                             }
-                        }
                     }
                 }
             }
@@ -1559,15 +1570,14 @@ impl SimpleComponent for App {
                     let focused_widget = focused.upcast_ref::<gtk::Widget>();
                     if focused_widget == bms_widget || focused_widget.is_ancestor(bms_widget) {
                         let selected = self.bookmarks.selection_model.selected();
-                        if selected != gtk::INVALID_LIST_POSITION {
-                            if let Some(item) = self.bookmarks.get_visible(selected) {
+                        if selected != gtk::INVALID_LIST_POSITION
+                            && let Some(item) = self.bookmarks.get_visible(selected) {
                                 let bookmark_ref: std::cell::Ref<'_, BookmarkListItem> =
                                     item.borrow();
                                 if let Some(id) = bookmark_ref.bookmark.id {
                                     _sender.input(AppMsg::DeleteBookmark(id));
                                 }
                             }
-                        }
                     }
                 }
             }

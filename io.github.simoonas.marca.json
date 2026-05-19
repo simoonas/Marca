@@ -9,10 +9,9 @@
     "command": "marca",
     "finish-args": [
         "--socket=fallback-x11",
+        "--share=ipc",
         "--socket=wayland",
         "--device=dri",
-        "--env=RUST_BACKTRACE=1",
-        "--env=GSETTINGS_SCHEMA_DIR=/app/share/glib-2.0/schemas",
         "--share=network"
     ],
     "modules" : [
@@ -28,7 +27,6 @@
             "build-commands": [
                 "cargo build --offline --release --all-features",
                 "install -Dm0755 target/release/marca ${FLATPAK_DEST}/bin/marca",
-                "install -Dm0755 src/db/better-trigram.so ${FLATPAK_DEST}/lib/better-trigram.so",
                 "install -Dm0644 data/io.github.simoonas.marca.svg ${FLATPAK_DEST}/share/icons/hicolor/scalable/apps/${FLATPAK_ID}.svg",
                 "install -Dm0644 data/io.github.simoonas.marca-symbolic.svg ${FLATPAK_DEST}/share/icons/hicolor/symbolic/apps/${FLATPAK_ID}-symbolic.svg",
                 "install -Dm0644 data/io.github.simoonas.marca.desktop ${FLATPAK_DEST}/share/applications/${FLATPAK_ID}.desktop",
@@ -36,19 +34,12 @@
                 "glib-compile-schemas ${FLATPAK_DEST}/share/glib-2.0/schemas/",
                 "install -Dm0644 data/io.github.simoonas.marca.metainfo.xml ${FLATPAK_DEST}/share/metainfo/${FLATPAK_ID}.metainfo.xml"
             ],
-            "cleanup": [
-                "/include",
-                "/lib/pkgconfig",
-                "/share/doc",
-                "/share/man",
-                "*.la",
-                "*.a"
-            ],
             "sources" : [
                 {
                     "type" : "git",
                     "url" : "https://github.com/simoonas/Marca.git",
-                    "tag": "v0.1.0"
+                    "tag": "v0.1.0",
+                    "commit": "81db50ac7fd205d9894c1286cdc54fe663ebe00f"
                 },
                 "cargo-sources.json"
             ]

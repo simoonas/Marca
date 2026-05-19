@@ -1,6 +1,6 @@
 use crate::db::models::{SortDirection, SortField, TagFilterMode, UNTAGGED_TAG_ID};
 use crate::db::{Bookmark, BookmarkWithTags, Tag};
-use rusqlite::{params, Connection, OptionalExtension, Result};
+use rusqlite::{Connection, OptionalExtension, Result, params};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn insert_bookmark(conn: &Connection, bookmark: &Bookmark) -> Result<i64> {
@@ -31,16 +31,16 @@ pub fn get_or_create_tag(conn: &Connection, title: &str) -> Result<i64> {
     let mut current_path = String::new();
 
     // Create all ancestors up to, but not including, the final tag
-    for i in 0..parts.len().saturating_sub(1) {
+    for i in parts.iter().take(parts.len().saturating_sub(1)) {
         if !current_path.is_empty() {
             current_path.push('/');
         }
-        current_path.push_str(parts[i]);
+        current_path.push_str(i);
 
-        if let Err(_) = conn.execute(
+        if conn.execute(
             "INSERT OR IGNORE INTO tags (title) VALUES (?1)",
             params![&current_path],
-        ) {
+        ).is_err() {
             // Ignore error if it already exists
         }
     }
@@ -490,6 +490,23 @@ pub fn update_bookmark_favicon_hash(conn: &Connection, bookmark_id: i64, hash: i
         params![hash, bookmark_id],
     )?;
     Ok(())
+}
+
+pub fn get_favicon_hash_for_domain(conn: &Connection, domain: &str) -> Result<Option<i32>> {
+    let hash: Option<i32> = conn
+        .query_row(
+            "SELECT favicon_hash FROM bookmarks 
+             WHERE (url LIKE 'http://' || ?1 || '/%' 
+                 OR url LIKE 'https://' || ?1 || '/%' 
+                 OR url = 'http://' || ?1 
+                 OR url = 'https://' || ?1) 
+               AND favicon_hash IS NOT NULL 
+             LIMIT 1",
+            params![domain],
+            |row| row.get(0),
+        )
+        .optional()?;
+    Ok(hash)
 }
 
 pub fn gc_deleted_bookmarks(conn: &Connection, days: u32) -> Result<usize> {

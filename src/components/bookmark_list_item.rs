@@ -156,7 +156,7 @@ impl RelmListItem for BookmarkListItem {
                         escaped.replace("/", "<span alpha=\"55%\">\u{2009}/\u{2009}</span>");
                     let badge = gtk::Label::builder()
                         .use_markup(true)
-                        .label(&format!("#{}", styled))
+                        .label(format!("#{}", styled))
                         .build();
                     badge.set_css_classes(&["accent", "tag"]);
                     badge.set_margin_start(2);

@@ -1,0 +1,39 @@
+name: Tagged lint & build
+on:
+  push:
+    tags:
+      - "v*"
+jobs:
+  qa:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check Formatting
+        run: cargo fmt --check
+
+      - name: Run Clippy
+        run: cargo clippy -- -D warnings
+
+  flatpak-build:
+    name: Flatpak Build
+    runs-on: ubuntu-latest
+    container:
+      image: abiword/flatpak-builder:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Runtime and SDK Dependencies
+        run: |
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub org.gnome.Sdk//50 org.gnome.Platform//50 org.freedesktop.Sdk.Extension.rust-stable//25.08
+
+      - name: Run Flatpak Builder
+        run: |
+          flatpak-builder --user --disable-rofiles-fuse --force-clean build_dir io.github.simoonas.marca.json

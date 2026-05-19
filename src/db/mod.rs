@@ -158,6 +158,10 @@ impl Database {
         queries::update_bookmark_favicon_hash(&self.conn, bookmark_id, hash)
     }
 
+    pub fn get_favicon_hash_for_domain(&self, domain: &str) -> Result<Option<i32>> {
+        queries::get_favicon_hash_for_domain(&self.conn, domain)
+    }
+
     pub fn import_bookmarks(
         &self,
         bookmarks: Vec<(Bookmark, Vec<String>)>,
