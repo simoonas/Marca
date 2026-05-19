@@ -22,18 +22,3 @@ jobs:
 
       - name: Run Clippy
         run: cargo clippy -- -D warnings
-
-  flatpak-build:
-    name: Flatpak Build
-    runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
-      options: --privileged
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run Flatpak Builder
-        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
-        with:
-          manifest-path: io.github.simoonas.marca.json
-          cache: true
