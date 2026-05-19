@@ -7,13 +7,10 @@ jobs:
   qa:
     name: Code Quality
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libglib2.0-dev pkg-config
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
