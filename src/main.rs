@@ -24,12 +24,13 @@ fn main() {
         let gc_days = settings.int("gc-days");
         if gc_days > 0
             && let Ok(deleted_count) = db.gc_deleted_bookmarks(gc_days as u32)
-                && deleted_count > 0 {
-                    eprintln!(
-                        "Garbage collected {} deleted bookmarks older than {} days",
-                        deleted_count, gc_days
-                    );
-                }
+            && deleted_count > 0
+        {
+            eprintln!(
+                "Garbage collected {} deleted bookmarks older than {} days",
+                deleted_count, gc_days
+            );
+        }
     } else {
         eprintln!(
             "GSettings schema 'io.github.simoonas.marca' not found. Skipping garbage collection."

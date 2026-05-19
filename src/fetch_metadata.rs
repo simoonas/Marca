@@ -160,9 +160,10 @@ fn extract_favicon_url_from_html(html: &str) -> Option<String> {
     for pattern in &patterns {
         if let Ok(re) = regex::Regex::new(pattern)
             && let Some(caps) = re.captures(html)
-                && let Some(url) = caps.get(1) {
-                    return Some(url.as_str().to_string());
-                }
+            && let Some(url) = caps.get(1)
+        {
+            return Some(url.as_str().to_string());
+        }
     }
 
     None
@@ -203,18 +204,20 @@ fn extract_description_from_text(text: &str) -> Option<String> {
 /// Extract domain name from URL as fallback title
 pub fn extract_domain_from_url(url: &str) -> String {
     if let Ok(parsed) = url::Url::parse(url)
-        && let Some(host) = parsed.host_str() {
-            let domain = host.strip_prefix("www.").unwrap_or(host);
-            return domain.to_string();
-        }
+        && let Some(host) = parsed.host_str()
+    {
+        let domain = host.strip_prefix("www.").unwrap_or(host);
+        return domain.to_string();
+    }
     url.to_string()
 }
 
 pub fn extract_domain(url: &str) -> Option<String> {
     if let Ok(parsed) = url::Url::parse(url)
-        && let Some(host) = parsed.host_str() {
-            let domain = host.strip_prefix("www.").unwrap_or(host);
-            return Some(domain.to_string());
-        }
+        && let Some(host) = parsed.host_str()
+    {
+        let domain = host.strip_prefix("www.").unwrap_or(host);
+        return Some(domain.to_string());
+    }
     None
 }

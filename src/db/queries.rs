@@ -37,10 +37,13 @@ pub fn get_or_create_tag(conn: &Connection, title: &str) -> Result<i64> {
         }
         current_path.push_str(i);
 
-        if conn.execute(
-            "INSERT OR IGNORE INTO tags (title) VALUES (?1)",
-            params![&current_path],
-        ).is_err() {
+        if conn
+            .execute(
+                "INSERT OR IGNORE INTO tags (title) VALUES (?1)",
+                params![&current_path],
+            )
+            .is_err()
+        {
             // Ignore error if it already exists
         }
     }

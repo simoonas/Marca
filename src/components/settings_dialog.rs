@@ -271,48 +271,50 @@ impl SimpleComponent for SettingsDialog {
                             let domain = crate::fetch_metadata::extract_domain(&url);
                             let domain_key = domain.clone().unwrap_or_else(|| url.clone());
 
-                            let existing_hash = if let Some(&hash_opt) =
-                                domain_cache.get(&domain_key)
-                            {
-                                hash_opt
-                            } else {
-                                let mut hash_opt = None;
+                            let existing_hash =
+                                if let Some(&hash_opt) = domain_cache.get(&domain_key) {
+                                    hash_opt
+                                } else {
+                                    let mut hash_opt = None;
 
-                                // Check DB for domain
-                                if let (Ok(db), Some(d)) = (crate::db::Database::new(), &domain)
-                                    && let Ok(Some(h)) = db.get_favicon_hash_for_domain(d) {
+                                    // Check DB for domain
+                                    if let (Ok(db), Some(d)) = (crate::db::Database::new(), &domain)
+                                        && let Ok(Some(h)) = db.get_favicon_hash_for_domain(d)
+                                    {
                                         hash_opt = Some(h);
                                     }
 
-                                // Fetch if not in DB
-                                if hash_opt.is_none() {
-                                    let result = tokio::task::spawn_blocking({
-                                        let url = url.clone();
-                                        move || crate::fetch_metadata::fetch_favicon_sync(&url)
-                                    })
-                                    .await
-                                    .ok()
-                                    .flatten();
+                                    // Fetch if not in DB
+                                    if hash_opt.is_none() {
+                                        let result = tokio::task::spawn_blocking({
+                                            let url = url.clone();
+                                            move || crate::fetch_metadata::fetch_favicon_sync(&url)
+                                        })
+                                        .await
+                                        .ok()
+                                        .flatten();
 
-                                    if let Some((hash, favicon_data)) = result
-                                        && let Ok(db) = crate::db::Database::new() {
+                                        if let Some((hash, favicon_data)) = result
+                                            && let Ok(db) = crate::db::Database::new()
+                                        {
                                             let _ = db.insert_favicon_if_new(hash, &favicon_data);
                                             hash_opt = Some(hash);
                                         }
-                                }
+                                    }
 
-                                domain_cache.insert(domain_key, hash_opt);
-                                hash_opt
-                            };
+                                    domain_cache.insert(domain_key, hash_opt);
+                                    hash_opt
+                                };
 
                             // Update bookmark if we have a hash
                             if let Some(hash) = existing_hash
-                                && let Ok(db) = crate::db::Database::new() {
-                                    let _ = db.conn().execute(
-                                        "UPDATE bookmarks SET favicon_hash = ?1 WHERE url = ?2",
-                                        rusqlite::params![hash, &url],
-                                    );
-                                }
+                                && let Ok(db) = crate::db::Database::new()
+                            {
+                                let _ = db.conn().execute(
+                                    "UPDATE bookmarks SET favicon_hash = ?1 WHERE url = ?2",
+                                    rusqlite::params![hash, &url],
+                                );
+                            }
                         }
 
                         // Let the app know we updated some favicons

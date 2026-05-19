@@ -25,15 +25,13 @@ jobs:
     name: Flatpak Build
     runs-on: ubuntu-latest
     container:
-      image: abiword/flatpak-builder:latest
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Runtime and SDK Dependencies
-        run: |
-          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user -y flathub org.gnome.Sdk//50 org.gnome.Platform//50 org.freedesktop.Sdk.Extension.rust-stable//25.08
-
       - name: Run Flatpak Builder
-        run: |
-          flatpak-builder --user --disable-rofiles-fuse --force-clean build_dir io.github.simoonas.marca.json
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: io.github.simoonas.marca.json
+          cache: true

@@ -59,11 +59,11 @@ fn parse_dl_element(
                 scraper::ElementRef::wrap(c)
                     .map(|e| e.value().name() == "a")
                     .unwrap_or(false)
-            })
-                && let Some(a) = dt.select(&a_selector).next()
-                    && let Some(bookmark) = parse_bookmark(a, folder_stack) {
-                        bookmarks.push(bookmark);
-                    }
+            }) && let Some(a) = dt.select(&a_selector).next()
+                && let Some(bookmark) = parse_bookmark(a, folder_stack)
+            {
+                bookmarks.push(bookmark);
+            }
         }
     }
 }

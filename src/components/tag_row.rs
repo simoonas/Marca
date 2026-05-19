@@ -152,9 +152,10 @@ impl FactoryComponent for TagRow {
         match msg {
             TagRowMsg::Clicked => {
                 if !self.is_editing
-                    && let Some(tag_id) = self.tag.id {
-                        let _ = sender.output(TagRowOutput::Toggle(tag_id));
-                    }
+                    && let Some(tag_id) = self.tag.id
+                {
+                    let _ = sender.output(TagRowOutput::Toggle(tag_id));
+                }
             }
             TagRowMsg::HoverEnter => {
                 self.is_hovered = true;
@@ -171,10 +172,12 @@ impl FactoryComponent for TagRow {
                 if self.is_editing {
                     self.is_editing = false;
                     let title = new_title.trim().trim_start_matches('#').to_string();
-                    if !title.is_empty() && title != self.tag.title
-                        && let Some(tag_id) = self.tag.id {
-                            let _ = sender.output(TagRowOutput::Rename(tag_id, title));
-                        }
+                    if !title.is_empty()
+                        && title != self.tag.title
+                        && let Some(tag_id) = self.tag.id
+                    {
+                        let _ = sender.output(TagRowOutput::Rename(tag_id, title));
+                    }
                 }
             }
             TagRowMsg::CancelEdit => {
