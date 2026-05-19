@@ -39,7 +39,7 @@
                     "type" : "git",
                     "url" : "https://github.com/simoonas/Marca.git",
                     "tag": "v0.1.0",
-                    "commit": "81db50ac7fd205d9894c1286cdc54fe663ebe00f"
+                    "commit": "2f87b4631fa864b31c790b9a92803beb3ccd019e"
                 },
                 "cargo-sources.json"
             ]
