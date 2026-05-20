@@ -5,32 +5,24 @@ on:
 
 jobs:
   qa:
-    name: Code Quality
     runs-on: ubuntu-latest
     container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
-      options: --privileged
+      image: ubuntu:resolute
     steps:
       - uses: actions/checkout@v4
 
-      - name: Initialize Container System ID
+      - name: Install dependencies
         run: |
-          dbus-uuidgen --ensure=/etc/machine-id
-          dbus-uuidgen --ensure=/var/lib/dbus/machine-id
+          apt-get update
+          apt-get install -y build-essential libgtk-4-dev libadwaita-1-dev curl libssl-dev
 
-      - name: Install Runtime and SDK
-        run: |
-          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-          flatpak install --user -y flathub org.gnome.Sdk//50 org.gnome.Platform//50 org.freedesktop.Sdk.Extension.rust-stable//25.08
+      - name: Rust setup
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
 
-      - name: Build Manifest Dependencies
-        run: |
-          flatpak-builder --user --disable-rofiles-fuse --stop-at=marca --force-clean build_dir io.github.simoonas.marca.json
+      - name: Lint clippy
+        run: cargo clippy --all --no-deps -- -D warnings
 
-      - name: Run Clippy
-        run: |
-          flatpak-builder --run --disable-rofiles-fuse build_dir io.github.simoonas.marca.json cargo clippy -- -D warnings
-
-      - name: Check Formatting
-        run: |
-          flatpak-builder --run --disable-rofiles-fuse build_dir io.github.simoonas.marca.json cargo fmt --check
+      - name: Lint fmt
+        run: cargo fmt --all -- --check
