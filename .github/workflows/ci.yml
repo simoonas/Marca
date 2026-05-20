@@ -26,3 +26,9 @@ jobs:
 
       - name: Lint fmt
         run: cargo fmt --all -- --check
+
+      - name: Test Build
+        uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: io.github.simoonas.marca.json
+          cache: true
