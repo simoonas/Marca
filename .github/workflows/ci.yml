@@ -9,8 +9,14 @@ jobs:
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
+      options: --privileged
     steps:
       - uses: actions/checkout@v4
+
+      - name: Initialize Container System ID
+        run: |
+          dbus-uuidgen --ensure=/etc/machine-id
+          dbus-uuidgen --ensure=/var/lib/dbus/machine-id
 
       - name: Install Runtime and SDK
         run: |
@@ -23,8 +29,8 @@ jobs:
 
       - name: Run Clippy
         run: |
-          flatpak-builder --run build_dir io.github.simoonas.marca.json cargo clippy -- -D warnings
+          flatpak-builder --run --disable-rofiles-fuse build_dir io.github.simoonas.marca.json cargo clippy -- -D warnings
 
       - name: Check Formatting
         run: |
-          flatpak-builder --run build_dir io.github.simoonas.marca.json cargo fmt --check
+          flatpak-builder --run --disable-rofiles-fuse build_dir io.github.simoonas.marca.json cargo fmt --check
