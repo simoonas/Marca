@@ -1,8 +1,8 @@
 name: Tagged lint
 on:
   push:
-    tags:
-      - "v*"
+    branches: [ main, master ]
+
 jobs:
   qa:
     name: Code Quality
@@ -12,17 +12,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Export Flatpak SDK Search Paths
+      - name: Install Runtime and SDK
         run: |
-          echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub org.gnome.Sdk//50 org.gnome.Platform//50 org.freedesktop.Sdk.Extension.rust-stable//25.08
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Check Formatting
-        run: cargo fmt --check
+      - name: Build Manifest Dependencies
+        run: |
+          flatpak-builder --user --disable-rofiles-fuse --stop-at=marca --force-clean build_dir io.github.simoonas.marca.json
 
       - name: Run Clippy
-        run: cargo clippy -- -D warnings
+        run: |
+          flatpak-builder --run build_dir io.github.simoonas.marca.json cargo clippy -- -D warnings
+
+      - name: Check Formatting
+        run: |
+          flatpak-builder --run build_dir io.github.simoonas.marca.json cargo fmt --check
