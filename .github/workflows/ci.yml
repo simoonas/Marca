@@ -27,6 +27,13 @@ jobs:
       - name: Lint fmt
         run: cargo fmt --all -- --check
 
+  verify-build:
+    name: Verify Flatpak Build
+    needs: qa
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
       - name: Test Build
         uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
