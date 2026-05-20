@@ -1,4 +1,4 @@
-name: Tagged lint & build
+name: Tagged lint
 on:
   push:
     tags:
@@ -11,6 +11,10 @@ jobs:
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-50
     steps:
       - uses: actions/checkout@v4
+
+      - name: Export Flatpak SDK Search Paths
+        run: |
+          echo "PKG_CONFIG_PATH=/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
