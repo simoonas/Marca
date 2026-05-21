@@ -17,8 +17,8 @@ Find cool stuff you forgot you saved to a growing pile of saved pages.
 - Nice keyboard controls
 - Import from browsers
 - Nested tags
+- export to JSON
 ## Coming soon:
-- JSON/CSV exports
 - reader mode
 - conflict-free P2P syncing - no self-hosting required
 - daemon for capturing links

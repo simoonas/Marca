@@ -10,11 +10,30 @@ pub struct SettingsDialog {
     settings: Option<gio::Settings>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum ImportFormat {
+    Html,
+    Json,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum ExportFormat {
+    Json,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum FileAction {
+    Import(ImportFormat),
+    Export(ExportFormat),
+}
+
 #[derive(Debug)]
 pub enum SettingsMsg {
-    ImportBookmarks,
-    FileSelected(Option<std::path::PathBuf>),
+    ImportBookmarks(ImportFormat),
+    ExportBookmarks(ExportFormat),
+    FileSelected(FileAction, Option<std::path::PathBuf>),
     ImportComplete(Result<crate::db::ImportResult, String>),
+    ExportComplete(Result<usize, String>),
     SetGcDays(u32),
     ShowAbout,
 }
@@ -76,12 +95,12 @@ impl SimpleComponent for SettingsDialog {
                 },
 
                 add = &adw::PreferencesGroup {
-                    set_title: "Import",
-                    set_description: Some("Import bookmarks from other apps"),
+                    set_title: "Import / Export",
+                    set_description: Some("Transfer bookmarks to/from other apps"),
 
                     adw::ActionRow {
                         set_title: "Import from bookmarks.html",
-                        set_subtitle: "Import bookmarks from a Netscape Bookmark Format file",
+                        set_subtitle: "Netscape Bookmark Format",
 
                         add_suffix = &gtk::Button {
                             set_label: "Choose File",
@@ -90,7 +109,37 @@ impl SimpleComponent for SettingsDialog {
                             #[watch]
                             set_sensitive: !model.importing,
 
-                            connect_clicked => SettingsMsg::ImportBookmarks,
+                            connect_clicked => SettingsMsg::ImportBookmarks(ImportFormat::Html),
+                        }
+                    },
+
+                    adw::ActionRow {
+                        set_title: "Import from JSON",
+                        set_subtitle: "Marca JSON Format",
+
+                        add_suffix = &gtk::Button {
+                            set_label: "Choose File",
+                            set_valign: gtk::Align::Center,
+                            add_css_class: "flat",
+                            #[watch]
+                            set_sensitive: !model.importing,
+
+                            connect_clicked => SettingsMsg::ImportBookmarks(ImportFormat::Json),
+                        }
+                    },
+
+                    adw::ActionRow {
+                        set_title: "Export to JSON",
+                        set_subtitle: "Export all bookmarks to JSON",
+
+                        add_suffix = &gtk::Button {
+                            set_label: "Export",
+                            set_valign: gtk::Align::Center,
+                            add_css_class: "flat",
+                            #[watch]
+                            set_sensitive: !model.importing,
+
+                            connect_clicked => SettingsMsg::ExportBookmarks(ExportFormat::Json),
                         }
                     },
 
@@ -153,60 +202,90 @@ impl SimpleComponent for SettingsDialog {
 
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         match msg {
-            SettingsMsg::ImportBookmarks => {
-                // Get parent window by finding the root widget
-                let parent_window: Option<gtk::Window> = self
-                    .root
-                    .upcast_ref::<gtk::Widget>()
-                    .root()
-                    .and_then(|root| root.downcast::<gtk::Window>().ok());
+            SettingsMsg::ImportBookmarks(format) => {
+                let parent_window = self.root.root().and_then(|r| r.downcast::<gtk::Window>().ok());
 
                 let file_dialog = gtk::FileDialog::new();
-                file_dialog.set_title("Import HTML Bookmarks");
+                file_dialog.set_title(match format {
+                    ImportFormat::Html => "Import HTML Bookmarks",
+                    ImportFormat::Json => "Import JSON Bookmarks",
+                });
                 file_dialog.set_accept_label(Some("Import"));
 
-                // Create filter for HTML files
                 let filter = gtk::FileFilter::new();
-                filter.add_pattern("*.html");
-                filter.add_pattern("*.htm");
-                filter.set_name(Some("HTML Bookmark Files"));
+                match format {
+                    ImportFormat::Html => {
+                        filter.add_pattern("*.html");
+                        filter.add_pattern("*.htm");
+                        filter.set_name(Some("HTML Bookmark Files"));
+                    }
+                    ImportFormat::Json => {
+                        filter.add_pattern("*.json");
+                        filter.set_name(Some("JSON Bookmark Files"));
+                    }
+                }
 
                 let filters = gio::ListStore::new::<gtk::FileFilter>();
                 filters.append(&filter);
                 file_dialog.set_filters(Some(&filters));
 
-                // Set initial folder to home directory
                 if let Some(home) = dirs::home_dir() {
                     file_dialog.set_initial_folder(Some(&gio::File::for_path(&home)));
                 }
 
-                // Show file dialog using async portal
                 let sender_clone = sender.clone();
                 file_dialog.open(parent_window.as_ref(), gio::Cancellable::NONE, move |res| {
                     if let Ok(file) = res {
-                        let path = file.path();
-                        sender_clone.input(SettingsMsg::FileSelected(path));
+                        sender_clone.input(SettingsMsg::FileSelected(FileAction::Import(format), file.path()));
                     }
                 });
             }
 
-            SettingsMsg::FileSelected(Some(path)) => {
-                // Start import process
-                self.importing = true;
+            SettingsMsg::ExportBookmarks(format) => {
+                let parent_window = self.root.root().and_then(|r| r.downcast::<gtk::Window>().ok());
 
-                // Start pulsing the progress bar - we need access to widgets
-                // Store progress bar widget in model
+                let file_dialog = gtk::FileDialog::new();
+                file_dialog.set_title("Export Bookmarks");
+                file_dialog.set_accept_label(Some("Export"));
+                file_dialog.set_initial_name(Some("Marca_bookmarks.json"));
+
+                let filter = gtk::FileFilter::new();
+                match format {
+                    ExportFormat::Json => {
+                        filter.add_pattern("*.json");
+                        filter.set_name(Some("JSON Bookmark Files"));
+                    }
+                }
+
+                let filters = gio::ListStore::new::<gtk::FileFilter>();
+                filters.append(&filter);
+                file_dialog.set_filters(Some(&filters));
+
+                if let Some(home) = dirs::home_dir() {
+                    file_dialog.set_initial_folder(Some(&gio::File::for_path(&home)));
+                }
+
+                let sender_clone = sender.clone();
+                file_dialog.save(parent_window.as_ref(), gio::Cancellable::NONE, move |res| {
+                    if let Ok(file) = res {
+                        sender_clone.input(SettingsMsg::FileSelected(FileAction::Export(format), file.path()));
+                    }
+                });
+            }
+
+            SettingsMsg::FileSelected(FileAction::Import(format), Some(path)) => {
+                self.importing = true;
                 let sender_clone = sender.clone();
                 tokio::spawn(async move {
                     let result = tokio::task::spawn_blocking(move || {
-                        // Read file
-                        let html = std::fs::read_to_string(&path)
+                        let content = std::fs::read_to_string(&path)
                             .map_err(|e| format!("Failed to read file: {}", e))?;
 
-                        // Parse HTML bookmarks
-                        let bookmarks = crate::import::html::parse_html_bookmarks(&html)?;
+                        let bookmarks = match format {
+                            ImportFormat::Html => crate::import::html::parse_html_bookmarks(&content)?,
+                            ImportFormat::Json => crate::import::json::parse_json_bookmarks(&content)?,
+                        };
 
-                        // Import to database
                         let db = crate::db::Database::new()
                             .map_err(|e| format!("Database error: {}", e))?;
 
@@ -220,8 +299,46 @@ impl SimpleComponent for SettingsDialog {
                 });
             }
 
-            SettingsMsg::FileSelected(None) => {
-                // User cancelled file picker
+            SettingsMsg::FileSelected(FileAction::Export(ExportFormat::Json), Some(path)) => {
+                self.importing = true;
+                let sender_clone = sender.clone();
+                tokio::spawn(async move {
+                    let result = tokio::task::spawn_blocking(move || {
+                        let db = crate::db::Database::new()
+                            .map_err(|e| format!("Database error: {}", e))?;
+
+                        let bookmarks = db.get_all_bookmarks_with_sort(
+                            crate::db::SortField::Created,
+                            crate::db::SortDirection::Descending,
+                        ).map_err(|e| format!("Failed to fetch bookmarks: {}", e))?;
+
+                        let json = crate::import::json::export_to_json(&bookmarks)?;
+                        std::fs::write(&path, json)
+                            .map_err(|e| format!("Failed to write file: {}", e))?;
+
+                        Ok(bookmarks.len())
+                    })
+                    .await
+                    .unwrap_or_else(|e| Err(format!("Task failed: {}", e)));
+
+                    sender_clone.input(SettingsMsg::ExportComplete(result));
+                });
+            }
+
+            SettingsMsg::FileSelected(_, None) => {
+                // User cancelled
+            }
+
+            SettingsMsg::ExportComplete(Ok(count)) => {
+                self.importing = false;
+                let msg = format!("Exported {} bookmarks", count);
+                let _ = sender.output(SettingsOutput::ShowToast(msg));
+            }
+
+            SettingsMsg::ExportComplete(Err(error)) => {
+                self.importing = false;
+                let msg = format!("Export failed: {}", error);
+                let _ = sender.output(SettingsOutput::ShowToast(msg));
             }
 
             SettingsMsg::ImportComplete(Ok(result)) => {
