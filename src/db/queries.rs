@@ -1,6 +1,6 @@
-use crate::db::models::{SortDirection, SortField, TagFilterMode, UNTAGGED_TAG_ID};
+use crate::db::models::{SortDirection, SortField, TagFilterMode, TRASHED_TAG_ID, UNTAGGED_TAG_ID};
 use crate::db::{Bookmark, BookmarkWithTags, Tag};
-use rusqlite::{Connection, OptionalExtension, Result, params};
+use rusqlite::{params, Connection, OptionalExtension, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn insert_bookmark(conn: &Connection, bookmark: &Bookmark) -> Result<i64> {
@@ -104,6 +104,7 @@ fn map_bookmark_with_favicon_and_tags(
         created: row.get(5)?,
         changed: row.get(6)?,
         favicon_hash: row.get(8)?,
+        deleted: row.get(10)?,
     };
     let favicon_data: Option<Vec<u8>> = row.get(7)?;
     let tags_concat: Option<String> = row.get(9)?;
@@ -122,9 +123,9 @@ pub fn get_all_bookmarks(
         sort_direction.sql_keyword()
     );
 
-    let query = format!(
+    let _query = format!(
         "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
-                GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
+                GROUP_CONCAT(t.id || \'|\' || t.title, \',\') as tags_concat, b.deleted
          FROM bookmarks b
          LEFT JOIN favicons f ON b.favicon_hash = f.hash
          LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id
@@ -135,7 +136,7 @@ pub fn get_all_bookmarks(
         order_clause
     );
 
-    let mut stmt = conn.prepare(&query)?;
+    let mut stmt = conn.prepare(&_query)?;
 
     let bookmark_iter = stmt.query_map([], map_bookmark_with_favicon_and_tags)?;
 
@@ -179,12 +180,13 @@ pub fn search_bookmarks(
 
     // Check if untagged is in the tag_ids
     let has_untagged = tag_ids.contains(&UNTAGGED_TAG_ID);
+    let has_trashed = tag_ids.contains(&TRASHED_TAG_ID);
 
-    // Regular tag_ids (excluding untagged)
+    // Regular tag_ids (excluding untagged and trashed)
     let regular_tag_ids: Vec<i64> = tag_ids
         .iter()
         .copied()
-        .filter(|&id| id != UNTAGGED_TAG_ID)
+        .filter(|&id| id != UNTAGGED_TAG_ID && id != TRASHED_TAG_ID)
         .collect();
 
     // Fetch titles for regular_tag_ids for prefix matching
@@ -211,10 +213,10 @@ pub fn search_bookmarks(
     let mut query_params: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
 
     let mut base_select = "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
-                        GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
+                        GROUP_CONCAT(t.id || \'|\' || t.title, \',\') as tags_concat, b.deleted
                  FROM bookmarks b".to_string();
 
-    let mut where_clauses = vec!["b.deleted = 0".to_string()];
+    let mut where_clauses = Vec::new();
 
     let mut is_fts_search = false;
     if let Some(search_text) = query {
@@ -226,7 +228,7 @@ pub fn search_bookmarks(
             is_fts_search = true;
         } else {
             // Fallback for short queries (1 or 2 characters) since fts trigram requires >= 3
-            // We use ESCAPE '\' for the LIKE clause to handle literal % and _
+            // We use ESCAPE \'\\\' for the LIKE clause to handle literal % and _
             let like_query = format!(
                 "%{}%",
                 search_text
@@ -234,7 +236,7 @@ pub fn search_bookmarks(
                     .replace("%", "\\%")
                     .replace("_", "\\_")
             );
-            where_clauses.push("(b.title LIKE ? ESCAPE '\\' OR b.url LIKE ? ESCAPE '\\' OR b.note LIKE ? ESCAPE '\\')".to_string());
+            where_clauses.push("(b.title LIKE ? ESCAPE \'\\\' OR b.url LIKE ? ESCAPE \'\\\' OR b.note LIKE ? ESCAPE \'\\\')".to_string());
             query_params.push(Box::new(like_query.clone()));
             query_params.push(Box::new(like_query.clone()));
             query_params.push(Box::new(like_query));
@@ -250,47 +252,80 @@ pub fn search_bookmarks(
     );
 
     if tag_ids.is_empty() {
-        // No tag filtering needed
-    } else if has_untagged && regular_tag_ids.is_empty() {
-        // Only untagged is selected
-        where_clauses.push(
-            "NOT EXISTS (SELECT 1 FROM bookmark_tags bt2 WHERE bt2.bookmark_id = b.id)".to_string(),
-        );
-    } else if has_untagged && !regular_tag_ids.is_empty() {
-        // Untagged + other tags (Any mode only usually, but we handle it as OR)
-        let mut tag_conditions = Vec::new();
-        for title in &selected_tag_titles {
-            tag_conditions.push("(t2.title = ? OR t2.title LIKE ? || '/%')".to_string());
-            query_params.push(Box::new(title.clone()));
-            query_params.push(Box::new(title.clone()));
-        }
-
-        where_clauses.push(format!(
-            "(NOT EXISTS (SELECT 1 FROM bookmark_tags bt2 WHERE bt2.bookmark_id = b.id) OR EXISTS (SELECT 1 FROM bookmark_tags bt2 JOIN tags t2 ON bt2.tag_id = t2.id WHERE bt2.bookmark_id = b.id AND ({})))",
-            tag_conditions.join(" OR ")
-        ));
+        // Default to active bookmarks
+        where_clauses.push("b.deleted = 0".to_string());
     } else {
-        // Regular tags only
-        if tag_filter_mode == TagFilterMode::Any {
-            let mut tag_conditions = Vec::new();
-            for title in &selected_tag_titles {
-                tag_conditions.push("(t2.title = ? OR t2.title LIKE ? || '/%')".to_string());
-                query_params.push(Box::new(title.clone()));
-                query_params.push(Box::new(title.clone()));
+        if tag_filter_mode == TagFilterMode::All {
+            // All mode: everything is ANDed
+            if has_trashed {
+                where_clauses.push("b.deleted = 1".to_string());
+            } else {
+                where_clauses.push("b.deleted = 0".to_string());
             }
-            where_clauses.push(format!(
-                "EXISTS (SELECT 1 FROM bookmark_tags bt2 JOIN tags t2 ON bt2.tag_id = t2.id WHERE bt2.bookmark_id = b.id AND ({}))",
-                tag_conditions.join(" OR ")
-            ));
-        } else {
-            // All mode
+
+            if has_untagged {
+                where_clauses.push(
+                    "NOT EXISTS (SELECT 1 FROM bookmark_tags bt2 WHERE bt2.bookmark_id = b.id)"
+                        .to_string(),
+                );
+            }
+
             for title in &selected_tag_titles {
                 where_clauses.push(
-                    "EXISTS (SELECT 1 FROM bookmark_tags bt2 JOIN tags t2 ON bt2.tag_id = t2.id WHERE bt2.bookmark_id = b.id AND (t2.title = ? OR t2.title LIKE ? || '/%'))".to_string()
+                    "EXISTS (SELECT 1 FROM bookmark_tags bt2 JOIN tags t2 ON bt2.tag_id = t2.id WHERE bt2.bookmark_id = b.id AND (t2.title = ? OR t2.title LIKE ? || \'/%\'))"
+                        .to_string(),
                 );
                 query_params.push(Box::new(title.clone()));
                 query_params.push(Box::new(title.clone()));
             }
+        } else {
+            // Any mode: OR together the selected "tags"
+            let mut or_conditions = Vec::new();
+
+            if has_trashed {
+                or_conditions.push("b.deleted = 1".to_string());
+            }
+
+            if has_untagged {
+                if has_trashed {
+                    or_conditions.push(
+                        "NOT EXISTS (SELECT 1 FROM bookmark_tags bt2 WHERE bt2.bookmark_id = b.id)"
+                            .to_string(),
+                    );
+                } else {
+                    or_conditions.push(
+                        "(b.deleted = 0 AND NOT EXISTS (SELECT 1 FROM bookmark_tags bt2 WHERE bt2.bookmark_id = b.id))"
+                            .to_string(),
+                    );
+                }
+            }
+
+            if !selected_tag_titles.is_empty() {
+                let mut tag_conds = Vec::new();
+                for title in &selected_tag_titles {
+                    tag_conds.push("(t2.title = ? OR t2.title LIKE ? || \'/%\')".to_string());
+                    query_params.push(Box::new(title.clone()));
+                    query_params.push(Box::new(title.clone()));
+                }
+
+                let combined_tag_cond = format!(
+                    "EXISTS (SELECT 1 FROM bookmark_tags bt2 JOIN tags t2 ON bt2.tag_id = t2.id WHERE bt2.bookmark_id = b.id AND ({}))",
+                    tag_conds.join(" OR ")
+                );
+
+                if has_trashed {
+                    or_conditions.push(combined_tag_cond);
+                } else {
+                    or_conditions.push(format!("(b.deleted = 0 AND {})", combined_tag_cond));
+                }
+            }
+
+            if !has_trashed {
+                // If "Trashed" is NOT one of the options, we must restrict to active bookmarks globally
+                where_clauses.push("b.deleted = 0".to_string());
+            }
+
+            where_clauses.push(format!("({})", or_conditions.join(" OR ")));
         }
     }
 
@@ -461,7 +496,7 @@ pub fn restore_bookmark(conn: &Connection, id: i64) -> Result<()> {
 pub fn get_bookmark_by_id(conn: &Connection, id: i64) -> Result<BookmarkWithTags> {
     let (bookmark, favicon_data, tags) = conn.query_row(
         "SELECT b.id, b.title, b.url, b.note, b.content, b.created, b.changed, f.favicon, b.favicon_hash,
-                GROUP_CONCAT(t.id || '|' || t.title, ',') as tags_concat
+                GROUP_CONCAT(t.id || \'|\' || t.title, \',\') as tags_concat, b.deleted
          FROM bookmarks b
          LEFT JOIN favicons f ON b.favicon_hash = f.hash
          LEFT JOIN bookmark_tags bt ON b.id = bt.bookmark_id

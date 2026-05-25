@@ -4,7 +4,7 @@ use crate::components::{
     TagRowOutput,
 };
 use crate::db::Database;
-use crate::db::models::{SortDirection, SortField, TagFilterMode, UNTAGGED_TAG_ID};
+use crate::db::models::{SortDirection, SortField, TRASHED_TAG_ID, TagFilterMode, UNTAGGED_TAG_ID};
 use crate::icon_names::custom::*;
 use adw::prelude::*;
 use relm4::factory::FactoryVecDeque;
@@ -482,6 +482,7 @@ impl SimpleComponent for App {
             ".favicon-icon { border-radius: 4px; max-width: 48px; max-height: 48px; min-width: 24px; min-height: 24px;}
              button.compact { padding: 0; margin: 0; min-height: 24px; font-size: 0.85em; }
             .untagged-tag:not(:hover) { background-color: var(--accent-teal); }
+            .trashed-tag:not(:hover) { background-color: var(--accent-yellow); }
             .untagged-tag:not(:hover) .untagged-tag-label { color: white; }
             .tag { font-weight: 750; font-family: 'Adwaita Sans'; }
              .hotkey-shortcut { font-size: 0.8em; padding: 0; margin: 0; }
@@ -615,6 +616,11 @@ impl SimpleComponent for App {
                             title: "NOT #TAGGED".to_string(),
                         };
                         tags.push(untagged_tag);
+                        let trashed_tag = crate::db::Tag {
+                            id: Some(TRASHED_TAG_ID),
+                            title: "trashed".to_string(),
+                        };
+                        tags.push(trashed_tag);
                         // Sort tags alphabetically (Untagged will be last due to 'U')
                         tags.sort_by(|a, b| a.title.cmp(&b.title));
 
@@ -1074,6 +1080,7 @@ impl SimpleComponent for App {
 
                     // Check if a specific Bookmark is focused to add Edit/Delete hotkeys
                     let mut focused_bookmark_id = None;
+                    let mut focused_bookmark_deleted = false;
                     if let Some(focused) = gtk::prelude::RootExt::focus(&self.window) {
                         let focused_widget = focused.upcast_ref::<gtk::Widget>();
                         let bms_widget = self.bookmarks.view.upcast_ref::<gtk::Widget>();
@@ -1086,6 +1093,7 @@ impl SimpleComponent for App {
                                 let bookmark_ref: std::cell::Ref<'_, BookmarkListItem> =
                                     item.borrow();
                                 focused_bookmark_id = bookmark_ref.bookmark.id;
+                                focused_bookmark_deleted = bookmark_ref.bookmark.deleted;
                             }
                         }
                     }
@@ -1101,6 +1109,7 @@ impl SimpleComponent for App {
 
                         if let Some(id) = focused_tag_id
                             && id != UNTAGGED_TAG_ID
+                            && id != TRASHED_TAG_ID
                         {
                             actions.push(HotkeyAction {
                                 id: 2,
@@ -1139,7 +1148,11 @@ impl SimpleComponent for App {
                                 });
                                 actions.push(HotkeyAction {
                                     id: 5,
-                                    label: "Delete".to_string(),
+                                    label: if focused_bookmark_deleted {
+                                        "Restore".to_string()
+                                    } else {
+                                        "Delete".to_string()
+                                    },
                                     accelerator: "<Ctrl>d".to_string(),
                                 });
                             }
@@ -1575,7 +1588,22 @@ impl SimpleComponent for App {
                         {
                             let bookmark_ref: std::cell::Ref<'_, BookmarkListItem> = item.borrow();
                             if let Some(id) = bookmark_ref.bookmark.id {
-                                _sender.input(AppMsg::DeleteBookmark(id));
+                                if bookmark_ref.bookmark.deleted {
+                                    match self.db.restore_bookmark(id) {
+                                        Ok(_) => {
+                                            _sender.input(AppMsg::RefreshBookmarks);
+                                            let toast = adw::Toast::new("Bookmark restored");
+                                            self.toast_overlay.add_toast(toast);
+                                        }
+                                        Err(e) => {
+                                            eprintln!("Error restoring bookmark: {}", e);
+                                            let toast = adw::Toast::new("Failed to restore bookmark");
+                                            self.toast_overlay.add_toast(toast);
+                                        }
+                                    }
+                                } else {
+                                    _sender.input(AppMsg::DeleteBookmark(id));
+                                }
                             }
                         }
                     }

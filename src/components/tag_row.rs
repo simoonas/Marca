@@ -1,4 +1,4 @@
-use crate::db::models::{Tag, UNTAGGED_TAG_ID};
+use crate::db::models::{Tag, TRASHED_TAG_ID, UNTAGGED_TAG_ID};
 use gtk::prelude::*;
 use relm4::factory::{DynamicIndex, FactoryComponent};
 use relm4::prelude::*;
@@ -12,7 +12,7 @@ pub struct TagRow {
 
 impl TagRow {
     pub fn display_title(&self) -> String {
-        if self.tag.id == Some(UNTAGGED_TAG_ID) {
+        if self.tag.id == Some(UNTAGGED_TAG_ID) || self.tag.id == Some(TRASHED_TAG_ID) {
             self.tag.title.clone()
         } else {
             format!("#{}", self.tag.title)
@@ -20,7 +20,7 @@ impl TagRow {
     }
 
     pub fn display_markup(&self) -> String {
-        if self.tag.id == Some(UNTAGGED_TAG_ID) {
+        if self.tag.id == Some(UNTAGGED_TAG_ID) || self.tag.id == Some(TRASHED_TAG_ID) {
             gtk::glib::markup_escape_text(&self.tag.title).to_string()
         } else {
             let escaped = gtk::glib::markup_escape_text(&self.tag.title).to_string();
@@ -63,6 +63,7 @@ impl FactoryComponent for TagRow {
             #[block_signal(activate_handler)]
             set_class_active: ("accent", self.is_hovered),
             set_class_active: ("untagged-tag", self.tag.id == Some(UNTAGGED_TAG_ID)),
+            set_class_active: ("trashed-tag", self.tag.id == Some(TRASHED_TAG_ID)),
 
             connect_activate[sender] => move |_| {
                 sender.input(TagRowMsg::Clicked);
@@ -87,6 +88,13 @@ impl FactoryComponent for TagRow {
                 set_orientation: gtk::Orientation::Horizontal,
                 set_spacing: 12,
                 set_margin_all: 8,
+
+                #[name = "icon"]
+                gtk::Image {
+                    set_icon_name: Some("user-trash-symbolic"),
+                    #[watch]
+                    set_visible: self.tag.id == Some(TRASHED_TAG_ID),
+                },
 
                 #[name = "label"]
                 gtk::Label {
@@ -164,7 +172,7 @@ impl FactoryComponent for TagRow {
                 self.is_hovered = false;
             }
             TagRowMsg::StartEdit => {
-                if self.tag.id != Some(UNTAGGED_TAG_ID) {
+                if self.tag.id != Some(UNTAGGED_TAG_ID) && self.tag.id != Some(TRASHED_TAG_ID) {
                     self.is_editing = true;
                 }
             }

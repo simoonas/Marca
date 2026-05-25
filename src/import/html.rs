@@ -113,6 +113,7 @@ fn parse_bookmark(
         created,
         changed,
         favicon_hash: None,
+        deleted: false,
     };
 
     // Use all ancestor folders as tags

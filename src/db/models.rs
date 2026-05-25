@@ -1,5 +1,6 @@
 /// Virtual tag ID for "Untagged" bookmarks (bookmarks with no tags)
 pub const UNTAGGED_TAG_ID: i64 = -1;
+pub const TRASHED_TAG_ID: i64 = -2;
 
 #[derive(Debug, Clone)]
 pub struct Bookmark {
@@ -11,6 +12,7 @@ pub struct Bookmark {
     pub created: i64,
     pub changed: i64,
     pub favicon_hash: Option<i32>,
+    pub deleted: bool,
 }
 
 impl Bookmark {
@@ -29,6 +31,7 @@ impl Bookmark {
             created: now,
             changed: now,
             favicon_hash: None,
+            deleted: false,
         }
     }
 }
