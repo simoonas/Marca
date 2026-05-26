@@ -547,6 +547,11 @@ pub fn get_favicon_hash_for_domain(conn: &Connection, domain: &str) -> Result<Op
     Ok(hash)
 }
 
+pub fn clear_trashed_bookmarks(conn: &Connection) -> Result<usize> {
+    let count = conn.execute("DELETE FROM bookmarks WHERE deleted = 1", [])?;
+    Ok(count)
+}
+
 pub fn gc_deleted_bookmarks(conn: &Connection, days: u32) -> Result<usize> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)

@@ -73,6 +73,8 @@ pub enum AppMsg {
     ShowToast(String),
     UndoDelete,
     OpenSettings,
+    ConfirmClearTrash,
+    ClearTrash,
 
     // Hotkey system messages
     FocusChanged,
@@ -237,6 +239,15 @@ impl SimpleComponent for App {
                                     add_css_class: "flat",
                                     set_tooltip_text: Some("Create bookmark"),
                                     connect_clicked => AppMsg::CreateBookmark,
+                                },
+
+                                pack_start = &gtk::Button {
+                                    set_icon_name: "edit-delete",
+                                    add_css_class: "flat",
+                                    set_tooltip_text: Some("Clear trash"),
+                                    #[watch]
+                                    set_visible: model.pinned_tag_ids.contains(&TRASHED_TAG_ID),
+                                    connect_clicked => AppMsg::ConfirmClearTrash,
                                 },
 
                                 #[wrap(Some)]
@@ -1362,6 +1373,57 @@ impl SimpleComponent for App {
                 }
             }
 
+            AppMsg::ConfirmClearTrash => {
+                let schema_exists = adw::gio::SettingsSchemaSource::default()
+                    .and_then(|s| s.lookup("io.github.simoonas.marca", true))
+                    .is_some();
+
+                let gc_days = if schema_exists {
+                    let settings = adw::gio::Settings::new("io.github.simoonas.marca");
+                    settings.int("gc-days")
+                } else {
+                    30 // fallback
+                };
+
+                let body = format!(
+                    "Trashed bookmarks are cleared automatically after {} days. Clearing them before sync may result in them reappearing post-sync.",
+                    gc_days
+                );
+
+                let dialog = adw::AlertDialog::builder()
+                    .heading("Empty Trash")
+                    .body(&body)
+                    .build();
+
+                dialog.add_response("cancel", "Cancel");
+                dialog.add_response("empty", "Empty Trash");
+                dialog.set_response_appearance("empty", adw::ResponseAppearance::Destructive);
+
+                let sender = _sender.clone();
+                dialog.choose(
+                    Some(&self.window),
+                    adw::gio::Cancellable::NONE,
+                    move |response| {
+                        if response == "empty" {
+                            sender.input(AppMsg::ClearTrash);
+                        }
+                    },
+                );
+            }
+
+            AppMsg::ClearTrash => match self.db.clear_trashed_bookmarks() {
+                Ok(count) => {
+                    let toast = adw::Toast::new(&format!("Emptied {} bookmarks from trash", count));
+                    self.toast_overlay.add_toast(toast);
+                    _sender.input(AppMsg::RefreshBookmarks);
+                }
+                Err(e) => {
+                    eprintln!("Error clearing trash: {}", e);
+                    let toast = adw::Toast::new("Failed to clear trash");
+                    self.toast_overlay.add_toast(toast);
+                }
+            },
+
             AppMsg::OpenSettings => {
                 // Create settings dialog if not exists
                 if self.settings_dialog.is_none() {
@@ -1597,7 +1659,8 @@ impl SimpleComponent for App {
                                         }
                                         Err(e) => {
                                             eprintln!("Error restoring bookmark: {}", e);
-                                            let toast = adw::Toast::new("Failed to restore bookmark");
+                                            let toast =
+                                                adw::Toast::new("Failed to restore bookmark");
                                             self.toast_overlay.add_toast(toast);
                                         }
                                     }

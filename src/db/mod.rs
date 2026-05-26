@@ -172,4 +172,8 @@ impl Database {
     pub fn gc_deleted_bookmarks(&self, days: u32) -> Result<usize> {
         queries::gc_deleted_bookmarks(&self.conn, days)
     }
+
+    pub fn clear_trashed_bookmarks(&self) -> Result<usize> {
+        queries::clear_trashed_bookmarks(&self.conn)
+    }
 }
