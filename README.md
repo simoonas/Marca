@@ -18,6 +18,7 @@ Find cool stuff you forgot you saved to a growing pile of saved pages.
 - Import from browsers
 - Nested tags
 - export to JSON
+- save links via CLI `--add`
 ## Coming soon:
 - reader mode
 - conflict-free P2P syncing - no self-hosting required

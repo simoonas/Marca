@@ -1,6 +1,6 @@
-use crate::db::models::{SortDirection, SortField, TagFilterMode, TRASHED_TAG_ID, UNTAGGED_TAG_ID};
+use crate::db::models::{SortDirection, SortField, TRASHED_TAG_ID, TagFilterMode, UNTAGGED_TAG_ID};
 use crate::db::{Bookmark, BookmarkWithTags, Tag};
-use rusqlite::{params, Connection, OptionalExtension, Result};
+use rusqlite::{Connection, OptionalExtension, Result, params};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn insert_bookmark(conn: &Connection, bookmark: &Bookmark) -> Result<i64> {

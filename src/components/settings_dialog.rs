@@ -203,7 +203,10 @@ impl SimpleComponent for SettingsDialog {
     fn update(&mut self, msg: Self::Input, sender: ComponentSender<Self>) {
         match msg {
             SettingsMsg::ImportBookmarks(format) => {
-                let parent_window = self.root.root().and_then(|r| r.downcast::<gtk::Window>().ok());
+                let parent_window = self
+                    .root
+                    .root()
+                    .and_then(|r| r.downcast::<gtk::Window>().ok());
 
                 let file_dialog = gtk::FileDialog::new();
                 file_dialog.set_title(match format {
@@ -236,13 +239,19 @@ impl SimpleComponent for SettingsDialog {
                 let sender_clone = sender.clone();
                 file_dialog.open(parent_window.as_ref(), gio::Cancellable::NONE, move |res| {
                     if let Ok(file) = res {
-                        sender_clone.input(SettingsMsg::FileSelected(FileAction::Import(format), file.path()));
+                        sender_clone.input(SettingsMsg::FileSelected(
+                            FileAction::Import(format),
+                            file.path(),
+                        ));
                     }
                 });
             }
 
             SettingsMsg::ExportBookmarks(format) => {
-                let parent_window = self.root.root().and_then(|r| r.downcast::<gtk::Window>().ok());
+                let parent_window = self
+                    .root
+                    .root()
+                    .and_then(|r| r.downcast::<gtk::Window>().ok());
 
                 let file_dialog = gtk::FileDialog::new();
                 file_dialog.set_title("Export Bookmarks");
@@ -268,7 +277,10 @@ impl SimpleComponent for SettingsDialog {
                 let sender_clone = sender.clone();
                 file_dialog.save(parent_window.as_ref(), gio::Cancellable::NONE, move |res| {
                     if let Ok(file) = res {
-                        sender_clone.input(SettingsMsg::FileSelected(FileAction::Export(format), file.path()));
+                        sender_clone.input(SettingsMsg::FileSelected(
+                            FileAction::Export(format),
+                            file.path(),
+                        ));
                     }
                 });
             }
@@ -282,8 +294,12 @@ impl SimpleComponent for SettingsDialog {
                             .map_err(|e| format!("Failed to read file: {}", e))?;
 
                         let bookmarks = match format {
-                            ImportFormat::Html => crate::import::html::parse_html_bookmarks(&content)?,
-                            ImportFormat::Json => crate::import::json::parse_json_bookmarks(&content)?,
+                            ImportFormat::Html => {
+                                crate::import::html::parse_html_bookmarks(&content)?
+                            }
+                            ImportFormat::Json => {
+                                crate::import::json::parse_json_bookmarks(&content)?
+                            }
                         };
 
                         let db = crate::db::Database::new()
@@ -307,10 +323,12 @@ impl SimpleComponent for SettingsDialog {
                         let db = crate::db::Database::new()
                             .map_err(|e| format!("Database error: {}", e))?;
 
-                        let bookmarks = db.get_all_bookmarks_with_sort(
-                            crate::db::SortField::Created,
-                            crate::db::SortDirection::Descending,
-                        ).map_err(|e| format!("Failed to fetch bookmarks: {}", e))?;
+                        let bookmarks = db
+                            .get_all_bookmarks_with_sort(
+                                crate::db::SortField::Created,
+                                crate::db::SortDirection::Descending,
+                            )
+                            .map_err(|e| format!("Failed to fetch bookmarks: {}", e))?;
 
                         let json = crate::import::json::export_to_json(&bookmarks)?;
                         std::fs::write(&path, json)

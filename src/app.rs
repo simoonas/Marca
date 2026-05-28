@@ -10,6 +10,9 @@ use adw::prelude::*;
 use relm4::factory::FactoryVecDeque;
 use relm4::prelude::*;
 use relm4::typed_view::list::TypedListView;
+use std::sync::OnceLock;
+
+pub static APP_SENDER: OnceLock<relm4::Sender<AppMsg>> = OnceLock::new();
 
 pub struct App {
     db: Database,
@@ -75,6 +78,7 @@ pub enum AppMsg {
     OpenSettings,
     ConfirmClearTrash,
     ClearTrash,
+    AddBookmarkFromCli(String),
 
     // Hotkey system messages
     FocusChanged,
@@ -334,6 +338,8 @@ impl SimpleComponent for App {
         root: Self::Root,
         sender: ComponentSender<Self>,
     ) -> ComponentParts<Self> {
+        let _ = APP_SENDER.set(sender.input_sender().clone());
+
         // Initialize the HotkeyDisplay component
         let hotkey_display = HotkeyDisplay::builder().launch(()).forward(
             sender.input_sender(),
@@ -1424,6 +1430,21 @@ impl SimpleComponent for App {
                 }
             },
 
+            AppMsg::AddBookmarkFromCli(text) => {
+                let sender = _sender.clone();
+                adw::glib::MainContext::default().spawn_local(async move {
+                    if let Err(e) =
+                        process_background_bookmark(&text, Some(sender.input_sender().clone()))
+                            .await
+                    {
+                        eprintln!("Error adding bookmark from CLI: {}", e);
+                        sender.input(AppMsg::ShowToast(
+                            "Failed to add bookmark from clipboard".to_string(),
+                        ));
+                    }
+                });
+            }
+
             AppMsg::OpenSettings => {
                 // Create settings dialog if not exists
                 if self.settings_dialog.is_none() {
@@ -1700,4 +1721,74 @@ impl SimpleComponent for App {
             }
         }
     }
+}
+
+pub async fn process_background_bookmark(
+    text: &str,
+    sender: Option<relm4::Sender<AppMsg>>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    // 1. Extract URL
+    let re = regex::Regex::new(r"https?://[^\s]+")?;
+    let url = if let Some(mat) = re.find(text) {
+        mat.as_str().to_string()
+    } else {
+        return Err("No URL found in text".into());
+    };
+
+    // 2. Fetch metadata
+    let metadata = crate::fetch_metadata::fetch_quick_metadata(&url).await?;
+    let title = if metadata.title.trim().is_empty() {
+        url.clone()
+    } else {
+        metadata.title
+    };
+
+    // 3. Database operations
+    let db = crate::db::Database::new()?;
+    let bookmark_id = db.insert_bookmark(&title, &url, metadata.description.as_deref())?;
+
+    // Send notification
+    let app = relm4::main_application();
+    let notification = adw::gio::Notification::new("Bookmark Added");
+    notification.set_body(Some(&title));
+    app.send_notification(Some("bookmark-added"), &notification);
+
+    if let Some(sender) = &sender {
+        let _ = sender.send(AppMsg::RefreshBookmarks);
+        let _ = sender.send(AppMsg::ShowToast(
+            "Bookmark added from clipboard".to_string(),
+        ));
+    }
+
+    // 4. Fetch favicon
+    if let Some(domain) = crate::fetch_metadata::extract_domain(&url) {
+        let existing_hash = db.get_favicon_hash_for_domain(&domain)?;
+        if let Some(hash) = existing_hash {
+            db.update_bookmark_favicon_hash(bookmark_id, hash)?;
+            if let Some(sender) = &sender {
+                let _ = sender.send(AppMsg::RefreshBookmarks);
+            }
+            return Ok(());
+        }
+    }
+
+    // Run blocking favicon fetch in a blocking thread pool
+    let url_clone = url.clone();
+    let result =
+        tokio::task::spawn_blocking(move || crate::fetch_metadata::fetch_favicon_sync(&url_clone))
+            .await
+            .ok()
+            .flatten();
+
+    if let Some((hash, favicon_data)) = result {
+        if let Ok(db2) = crate::db::Database::new() {
+            let _ = db2.insert_favicon_if_new(hash, &favicon_data);
+            let _ = db2.update_bookmark_favicon_hash(bookmark_id, hash);
+            if let Some(sender) = sender {
+                let _ = sender.send(AppMsg::RefreshBookmarks);
+            }
+        }
+    }
+
+    Ok(())
 }

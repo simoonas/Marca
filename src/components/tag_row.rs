@@ -1,4 +1,4 @@
-use crate::db::models::{Tag, TRASHED_TAG_ID, UNTAGGED_TAG_ID};
+use crate::db::models::{TRASHED_TAG_ID, Tag, UNTAGGED_TAG_ID};
 use gtk::prelude::*;
 use relm4::factory::{DynamicIndex, FactoryComponent};
 use relm4::prelude::*;
