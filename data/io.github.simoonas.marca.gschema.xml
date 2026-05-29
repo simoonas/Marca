@@ -6,5 +6,10 @@
       <summary>Days before clearing deleted bookmarks</summary>
       <description>Number of days after which deleted bookmarks are permanently removed from the database.</description>
     </key>
+    <key name="show-welcome" type="b">
+      <default>true</default>
+      <summary>Show welcome dialog</summary>
+      <description>Whether to show the welcome dialog on the first run of the application.</description>
+    </key>
   </schema>
 </schemalist>

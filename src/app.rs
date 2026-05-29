@@ -1,7 +1,7 @@
 use crate::components::{
     BookmarkEditDialog, BookmarkEditInit, BookmarkEditOutput, BookmarkListItem, HotkeyAction,
     HotkeyDisplay, HotkeyDisplayMsg, HotkeyDisplayOutput, SettingsDialog, SettingsOutput, TagRow,
-    TagRowOutput,
+    TagRowOutput, WelcomeDialog,
 };
 use crate::db::Database;
 use crate::db::models::{SortDirection, SortField, TRASHED_TAG_ID, TagFilterMode, UNTAGGED_TAG_ID};
@@ -27,6 +27,7 @@ pub struct App {
     deleted_bookmarks: Vec<i64>,
     window: adw::ApplicationWindow,
     settings_dialog: Option<Controller<SettingsDialog>>,
+    welcome_dialog: Option<Controller<WelcomeDialog>>,
 
     // Hotkey display component
     hotkey_display: Controller<HotkeyDisplay>,
@@ -79,6 +80,7 @@ pub enum AppMsg {
     ConfirmClearTrash,
     ClearTrash,
     AddBookmarkFromCli(String),
+    ShowWelcome,
 
     // Hotkey system messages
     FocusChanged,
@@ -391,6 +393,7 @@ impl SimpleComponent for App {
             deleted_bookmarks: Vec::new(),
             window: root.clone(),
             settings_dialog: None,
+            welcome_dialog: None,
 
             hotkey_display,
 
@@ -417,6 +420,19 @@ impl SimpleComponent for App {
         model.sort_field_button = widgets.sort_field_button.clone();
         model.sort_direction_button = widgets.sort_direction_button.clone();
         model.tag_filter_button = widgets.tag_filter_button.clone();
+
+        // Load settings and check for welcome dialog
+        let schema_exists = adw::gio::SettingsSchemaSource::default()
+            .and_then(|s| s.lookup("io.github.simoonas.marca", true))
+            .is_some();
+
+        if schema_exists {
+            let settings = adw::gio::Settings::new("io.github.simoonas.marca");
+            if settings.boolean("show-welcome") {
+                sender.input(AppMsg::ShowWelcome);
+                let _ = settings.set_boolean("show-welcome", false);
+            }
+        }
 
         let bms = model.bookmarks.view.clone();
         let _pinned_tags = model.pinned_tags.widget().clone();
@@ -1443,6 +1459,15 @@ impl SimpleComponent for App {
                         ));
                     }
                 });
+            }
+
+            AppMsg::ShowWelcome => {
+                let dialog = WelcomeDialog::builder()
+                    .launch(())
+                    .detach();
+                
+                dialog.widget().present(Some(&self.window));
+                self.welcome_dialog = Some(dialog);
             }
 
             AppMsg::OpenSettings => {
