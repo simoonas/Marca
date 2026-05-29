@@ -28,6 +28,7 @@ pub struct App {
     window: adw::ApplicationWindow,
     settings_dialog: Option<Controller<SettingsDialog>>,
     welcome_dialog: Option<Controller<WelcomeDialog>>,
+    is_bookmarks_empty: bool,
 
     // Hotkey display component
     hotkey_display: Controller<HotkeyDisplay>,
@@ -301,12 +302,33 @@ impl SimpleComponent for App {
                             },
 
                             #[wrap(Some)]
-                            set_content = &gtk::ScrolledWindow {
-                                set_hscrollbar_policy: gtk::PolicyType::Never,
-                                set_vscrollbar_policy: gtk::PolicyType::Automatic,
+                            set_content = &gtk::Box {
+                                set_orientation: gtk::Orientation::Vertical,
 
-                                #[local_ref]
-                                bookmarks_list -> gtk::ListView {
+                                gtk::ScrolledWindow {
+                                    set_hscrollbar_policy: gtk::PolicyType::Never,
+                                    set_vscrollbar_policy: gtk::PolicyType::Automatic,
+                                    set_vexpand: true,
+                                    #[watch]
+                                    set_visible: !model.is_bookmarks_empty,
+
+                                    #[local_ref]
+                                    bookmarks_list -> gtk::ListView {
+                                    }
+                                },
+
+                                adw::StatusPage {
+                                    set_title: "No bookmarks found",
+                                    #[watch]
+                                    set_description: Some(if model.bookmark_search.is_empty() && model.pinned_tag_ids.is_empty() {
+                                        "Your collection is empty"
+                                    } else {
+                                        "Try a different search or tag combination"
+                                    }),
+                                    set_icon_name: Some("edit-find-symbolic"),
+                                    set_vexpand: true,
+                                    #[watch]
+                                    set_visible: model.is_bookmarks_empty,
                                 }
                             }
                         }
@@ -394,6 +416,7 @@ impl SimpleComponent for App {
             window: root.clone(),
             settings_dialog: None,
             welcome_dialog: None,
+            is_bookmarks_empty: false,
 
             hotkey_display,
 
@@ -720,6 +743,8 @@ impl SimpleComponent for App {
 
                 match results {
                     Ok(bookmarks) => {
+                        self.is_bookmarks_empty = bookmarks.is_empty();
+
                         // Hide the ListView to batch layout updates
                         self.bookmarks.view.set_visible(false);
 
