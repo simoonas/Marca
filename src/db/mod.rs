@@ -1,6 +1,7 @@
 pub mod import;
 pub mod models;
 pub mod queries;
+pub mod seed;
 mod schema;
 
 pub use import::ImportResult;
@@ -108,6 +109,10 @@ impl Database {
             sort_direction,
             tag_filter_mode,
         )
+    }
+
+    pub fn count_bookmarks(&self) -> Result<i64> {
+        queries::count_bookmarks(&self.conn)
     }
 
     pub fn insert_bookmark(&self, title: &str, url: &str, note: Option<&str>) -> Result<i64> {

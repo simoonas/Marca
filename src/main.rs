@@ -86,6 +86,11 @@ fn main() {
         );
     }
 
+    // Seed sample data if database is empty
+    if db.count_bookmarks().unwrap_or(0) == 0 {
+        db::seed::seed_sample_data(&db).expect("Failed to seed sample data");
+    }
+
     // Run the application
     let relm_app = RelmApp::new("io.github.simoonas.marca");
     relm_app.run::<app::App>(db);

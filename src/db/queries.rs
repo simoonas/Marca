@@ -20,6 +20,12 @@ pub fn insert_bookmark(conn: &Connection, bookmark: &Bookmark) -> Result<i64> {
     Ok(conn.last_insert_rowid())
 }
 
+pub fn count_bookmarks(conn: &Connection) -> Result<i64> {
+    conn.query_row("SELECT COUNT(*) FROM bookmarks", [], |r| {
+        r.get(0)
+    })
+}
+
 pub fn insert_tag(conn: &Connection, tag: &Tag) -> Result<i64> {
     conn.execute("INSERT INTO tags (title) VALUES (?1)", params![tag.title])?;
     Ok(conn.last_insert_rowid())
