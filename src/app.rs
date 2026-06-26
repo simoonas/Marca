@@ -248,15 +248,6 @@ impl SimpleComponent for App {
                                     connect_clicked => AppMsg::CreateBookmark,
                                 },
 
-                                pack_start = &gtk::Button {
-                                    set_icon_name: "edit-delete",
-                                    add_css_class: "flat",
-                                    set_tooltip_text: Some("Clear trash"),
-                                    #[watch]
-                                    set_visible: model.pinned_tag_ids.contains(&TRASHED_TAG_ID),
-                                    connect_clicked => AppMsg::ConfirmClearTrash,
-                                },
-
                                 #[wrap(Some)]
                                 set_title_widget = &gtk::Box {
                                     set_orientation: gtk::Orientation::Horizontal,
@@ -304,6 +295,16 @@ impl SimpleComponent for App {
                             #[wrap(Some)]
                             set_content = &gtk::Box {
                                 set_orientation: gtk::Orientation::Vertical,
+
+                                gtk::Button {
+                                    set_label: "Clear Trash",
+                                    add_css_class: "destructive-action",
+                                    set_margin_all: 6,
+                                    set_halign: gtk::Align::Fill,
+                                    #[watch]
+                                    set_visible: model.pinned_tag_ids.contains(&TRASHED_TAG_ID),
+                                    connect_clicked => AppMsg::ConfirmClearTrash,
+                                },
 
                                 gtk::ScrolledWindow {
                                     set_hscrollbar_policy: gtk::PolicyType::Never,
