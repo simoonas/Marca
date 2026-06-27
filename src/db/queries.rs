@@ -21,9 +21,7 @@ pub fn insert_bookmark(conn: &Connection, bookmark: &Bookmark) -> Result<i64> {
 }
 
 pub fn count_bookmarks(conn: &Connection) -> Result<i64> {
-    conn.query_row("SELECT COUNT(*) FROM bookmarks", [], |r| {
-        r.get(0)
-    })
+    conn.query_row("SELECT COUNT(*) FROM bookmarks", [], |r| r.get(0))
 }
 
 pub fn insert_tag(conn: &Connection, tag: &Tag) -> Result<i64> {
@@ -260,79 +258,77 @@ pub fn search_bookmarks(
     if tag_ids.is_empty() {
         // Default to active bookmarks
         where_clauses.push("b.deleted = 0".to_string());
-    } else {
-        if tag_filter_mode == TagFilterMode::All {
-            // All mode: everything is ANDed
-            if has_trashed {
-                where_clauses.push("b.deleted = 1".to_string());
-            } else {
-                where_clauses.push("b.deleted = 0".to_string());
-            }
+    } else if tag_filter_mode == TagFilterMode::All {
+        // All mode: everything is ANDed
+        if has_trashed {
+            where_clauses.push("b.deleted = 1".to_string());
+        } else {
+            where_clauses.push("b.deleted = 0".to_string());
+        }
 
-            if has_untagged {
-                where_clauses.push(
+        if has_untagged {
+            where_clauses.push(
+                "NOT EXISTS (SELECT 1 FROM bookmark_tags bt2 WHERE bt2.bookmark_id = b.id)"
+                    .to_string(),
+            );
+        }
+
+        for title in &selected_tag_titles {
+            where_clauses.push(
+                "EXISTS (SELECT 1 FROM bookmark_tags bt2 JOIN tags t2 ON bt2.tag_id = t2.id WHERE bt2.bookmark_id = b.id AND (t2.title = ? OR t2.title LIKE ? || \'/%\'))"
+                    .to_string(),
+            );
+            query_params.push(Box::new(title.clone()));
+            query_params.push(Box::new(title.clone()));
+        }
+    } else {
+        // Any mode: OR together the selected "tags"
+        let mut or_conditions = Vec::new();
+
+        if has_trashed {
+            or_conditions.push("b.deleted = 1".to_string());
+        }
+
+        if has_untagged {
+            if has_trashed {
+                or_conditions.push(
                     "NOT EXISTS (SELECT 1 FROM bookmark_tags bt2 WHERE bt2.bookmark_id = b.id)"
                         .to_string(),
                 );
-            }
-
-            for title in &selected_tag_titles {
-                where_clauses.push(
-                    "EXISTS (SELECT 1 FROM bookmark_tags bt2 JOIN tags t2 ON bt2.tag_id = t2.id WHERE bt2.bookmark_id = b.id AND (t2.title = ? OR t2.title LIKE ? || \'/%\'))"
+            } else {
+                or_conditions.push(
+                    "(b.deleted = 0 AND NOT EXISTS (SELECT 1 FROM bookmark_tags bt2 WHERE bt2.bookmark_id = b.id))"
                         .to_string(),
                 );
+            }
+        }
+
+        if !selected_tag_titles.is_empty() {
+            let mut tag_conds = Vec::new();
+            for title in &selected_tag_titles {
+                tag_conds.push("(t2.title = ? OR t2.title LIKE ? || \'/%\')".to_string());
                 query_params.push(Box::new(title.clone()));
                 query_params.push(Box::new(title.clone()));
             }
-        } else {
-            // Any mode: OR together the selected "tags"
-            let mut or_conditions = Vec::new();
+
+            let combined_tag_cond = format!(
+                "EXISTS (SELECT 1 FROM bookmark_tags bt2 JOIN tags t2 ON bt2.tag_id = t2.id WHERE bt2.bookmark_id = b.id AND ({}))",
+                tag_conds.join(" OR ")
+            );
 
             if has_trashed {
-                or_conditions.push("b.deleted = 1".to_string());
+                or_conditions.push(combined_tag_cond);
+            } else {
+                or_conditions.push(format!("(b.deleted = 0 AND {})", combined_tag_cond));
             }
-
-            if has_untagged {
-                if has_trashed {
-                    or_conditions.push(
-                        "NOT EXISTS (SELECT 1 FROM bookmark_tags bt2 WHERE bt2.bookmark_id = b.id)"
-                            .to_string(),
-                    );
-                } else {
-                    or_conditions.push(
-                        "(b.deleted = 0 AND NOT EXISTS (SELECT 1 FROM bookmark_tags bt2 WHERE bt2.bookmark_id = b.id))"
-                            .to_string(),
-                    );
-                }
-            }
-
-            if !selected_tag_titles.is_empty() {
-                let mut tag_conds = Vec::new();
-                for title in &selected_tag_titles {
-                    tag_conds.push("(t2.title = ? OR t2.title LIKE ? || \'/%\')".to_string());
-                    query_params.push(Box::new(title.clone()));
-                    query_params.push(Box::new(title.clone()));
-                }
-
-                let combined_tag_cond = format!(
-                    "EXISTS (SELECT 1 FROM bookmark_tags bt2 JOIN tags t2 ON bt2.tag_id = t2.id WHERE bt2.bookmark_id = b.id AND ({}))",
-                    tag_conds.join(" OR ")
-                );
-
-                if has_trashed {
-                    or_conditions.push(combined_tag_cond);
-                } else {
-                    or_conditions.push(format!("(b.deleted = 0 AND {})", combined_tag_cond));
-                }
-            }
-
-            if !has_trashed {
-                // If "Trashed" is NOT one of the options, we must restrict to active bookmarks globally
-                where_clauses.push("b.deleted = 0".to_string());
-            }
-
-            where_clauses.push(format!("({})", or_conditions.join(" OR ")));
         }
+
+        if !has_trashed {
+            // If "Trashed" is NOT one of the options, we must restrict to active bookmarks globally
+            where_clauses.push("b.deleted = 0".to_string());
+        }
+
+        where_clauses.push(format!("({})", or_conditions.join(" OR ")));
     }
 
     let order_clause = if is_fts_search && sort_field == SortField::Relevance {

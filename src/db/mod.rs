@@ -1,14 +1,16 @@
 pub mod import;
 pub mod models;
 pub mod queries;
-pub mod seed;
 mod schema;
+pub mod seed;
 
 pub use import::ImportResult;
 pub use models::{Bookmark, BookmarkWithTags, SortDirection, SortField, Tag, TagFilterMode};
 
-use rusqlite::{Connection, Result};
+use rusqlite::{Connection, Result, Transaction};
 use std::path::PathBuf;
+
+const SCHEMA_VERSION: i32 = 1;
 
 pub struct Database {
     conn: Connection,
@@ -47,6 +49,19 @@ impl Database {
     fn init_schema(&mut self) -> Result<()> {
         eprintln!("Initializing database schema...");
 
+        // Run migrations
+        let current_version: i32 = self
+            .conn
+            .query_row("PRAGMA user_version", [], |row| row.get(0))?;
+
+        if current_version < SCHEMA_VERSION {
+            let tx = self.conn.transaction()?;
+            Self::run_migrations(&tx, current_version)?;
+            tx.pragma_update(None, "user_version", SCHEMA_VERSION)?;
+            tx.commit()?;
+            eprintln!("Database migrated from v{current_version} to v{SCHEMA_VERSION}");
+        }
+
         // Create tables
         self.conn.execute(schema::CREATE_BOOKMARKS_TABLE, [])?;
         self.conn.execute(schema::CREATE_TAGS_TABLE, [])?;
@@ -74,6 +89,16 @@ impl Database {
 
         eprintln!("Database schema initialized successfully");
 
+        Ok(())
+    }
+
+    fn run_migrations(_tx: &Transaction, from_version: i32) -> Result<()> {
+        for _version in (from_version + 1)..=SCHEMA_VERSION {
+            // match _version {
+            //     1 => { /* initial schema — no migration needed */ }
+            //     _ => {}
+            // }
+        }
         Ok(())
     }
 

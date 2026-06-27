@@ -25,12 +25,10 @@ fn main() {
         // Simple CLI argument parsing
         for i in 1..args.len() {
             let arg = args[i].to_string_lossy();
-            if arg == "--add" {
-                if i + 1 < args.len() {
-                    bookmark_text = args[i + 1].to_string_lossy().to_string();
-                    is_add_bookmark = true;
-                    break;
-                }
+            if arg == "--add" && i + 1 < args.len() {
+                bookmark_text = args[i + 1].to_string_lossy().to_string();
+                is_add_bookmark = true;
+                break;
             }
         }
 

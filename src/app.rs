@@ -1488,10 +1488,8 @@ impl SimpleComponent for App {
             }
 
             AppMsg::ShowWelcome => {
-                let dialog = WelcomeDialog::builder()
-                    .launch(())
-                    .detach();
-                
+                let dialog = WelcomeDialog::builder().launch(()).detach();
+
                 dialog.widget().present(Some(&self.window));
                 self.welcome_dialog = Some(dialog);
             }
@@ -1831,13 +1829,13 @@ pub async fn process_background_bookmark(
             .ok()
             .flatten();
 
-    if let Some((hash, favicon_data)) = result {
-        if let Ok(db2) = crate::db::Database::new() {
-            let _ = db2.insert_favicon_if_new(hash, &favicon_data);
-            let _ = db2.update_bookmark_favicon_hash(bookmark_id, hash);
-            if let Some(sender) = sender {
-                let _ = sender.send(AppMsg::RefreshBookmarks);
-            }
+    if let Some((hash, favicon_data)) = result
+        && let Ok(db2) = crate::db::Database::new()
+    {
+        let _ = db2.insert_favicon_if_new(hash, &favicon_data);
+        let _ = db2.update_bookmark_favicon_hash(bookmark_id, hash);
+        if let Some(sender) = sender {
+            let _ = sender.send(AppMsg::RefreshBookmarks);
         }
     }
 
