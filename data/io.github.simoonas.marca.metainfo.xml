@@ -3,23 +3,23 @@
   <id>io.github.simoonas.marca</id>
   
   <name>Marca</name>
-  <summary>Organize &amp; find your deeplinks quickly</summary>
+  <summary>Find saved websites &amp; app deeplinks quickly using powerful tagging and full-text search</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-only</project_license>
   
   <description>
     <p>
-      Find your web bookmarks or deeplinks to apps with tags and full-text search
+      Marca's a URL manager. It treats everything as tags: tags themselves, hierarchy (akin to folders), whether a bookmark is trashed, uncategorized, etc. All this, + inclusive/exclusive filtering is available through the sidebar.
     </p>
 
-    <p>**Features:**</p>
+    <p>Features:</p>
     <ul>
-      <li>Full Text Search</li>
+      <li>Full-Text Search</li>
       <li>Filter using tags inclusively/exclusively</li>
       <li>Sort by created, modified, title, URL, Relevance</li>
       <li>Keyboard controls</li>
-      <li>Import from browsers</li>
-      <li>More coming soon!</li>
+      <li>Import/export to JSON/HTML</li>
+      <li>Coming soon: cloud-free sync, reader mode and more.</li>
     </ul>
   </description>
   
@@ -60,6 +60,18 @@
   </screenshots>
 
   <releases>
+    <release version="0.1.1" date="2026-06-30">
+      <url type="details">https://github.com/simoonas/Marca/releases/tag/v0.1.1</url>
+      <description>
+        <p>Bug fixes and some new features</p>
+          <ul>
+            <li>Fixed importing bookmarks causing a crash</li>
+            <li>See trashed bookmarks with the "Trashed" virtual tag</li>
+            <li>Import/export to JSON</li>
+            <li>Clear trashed bookmarks ahead of time</li>
+          </ul>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-05-18">
       <url type="details">https://github.com/simoonas/Marca/releases/tag/v0.1.0</url>
       <description>

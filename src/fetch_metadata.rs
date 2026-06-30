@@ -170,34 +170,31 @@ fn extract_favicon_url_from_html(html: &str) -> Option<String> {
 }
 
 fn extract_description_from_text(text: &str) -> Option<String> {
-    if text.is_empty() {
-        return None;
-    }
-
-    let cleaned = text
+    let cleaned: String = text
         .lines()
         .map(|line| line.trim())
         .filter(|line| !line.is_empty())
         .collect::<Vec<_>>()
         .join(" ");
 
-    let max_len = 300;
+    if cleaned.is_empty() {
+        return None;
+    }
 
-    if cleaned.len() > max_len {
-        if let Some(period_pos) = cleaned[..max_len]
-            .rfind('.')
-            .filter(|&pos| pos > max_len / 2)
-        {
-            Some(format!("{}.", &cleaned[..period_pos]))
-        } else if let Some(space_pos) = cleaned[..max_len].rfind(' ') {
-            Some(format!("{}...", &cleaned[..space_pos]))
-        } else {
-            Some(format!("{}...", &cleaned[..max_len]))
-        }
-    } else if cleaned.is_empty() {
-        None
+    const MAX_LEN: usize = 300;
+
+    if cleaned.chars().count() <= MAX_LEN {
+        return Some(cleaned);
+    }
+
+    let truncated: String = cleaned.chars().take(MAX_LEN).collect();
+
+    if let Some(pos) = truncated.rfind('.').filter(|&pos| pos > MAX_LEN / 2) {
+        Some(format!("{}.", &truncated[..pos]))
+    } else if let Some(pos) = truncated.rfind(' ') {
+        Some(format!("{}...", &truncated[..pos]))
     } else {
-        Some(cleaned)
+        Some(format!("{}...", truncated))
     }
 }
 

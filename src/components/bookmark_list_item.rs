@@ -116,16 +116,22 @@ impl RelmListItem for BookmarkListItem {
 
     fn bind(&mut self, widgets: &mut Self::Widgets, _root: &mut Self::Root) {
         // Update title
-        let truncated_title = if self.bookmark.title.len() > 100 {
-            format!("{}...", &self.bookmark.title[..100])
+        let truncated_title = if self.bookmark.title.chars().count() > 100 {
+            format!(
+                "{}...",
+                self.bookmark.title.chars().take(100).collect::<String>()
+            )
         } else {
             self.bookmark.title.clone()
         };
         widgets.title_label.set_label(&truncated_title);
 
         // Update URL
-        let truncated_url = if self.bookmark.url.len() > 50 {
-            format!("{}...", &self.bookmark.url[..50])
+        let truncated_url = if self.bookmark.url.chars().count() > 50 {
+            format!(
+                "{}...",
+                self.bookmark.url.chars().take(50).collect::<String>()
+            )
         } else {
             self.bookmark.url.clone()
         };

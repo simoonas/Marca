@@ -7,16 +7,16 @@ pub fn seed_sample_data(db: &Database) -> Result<()> {
 
     let samples: Vec<(&str, &str, Option<&str>, Vec<&str>)> = vec![
         (
-            "Simoonas",
-            "https://github.com/simoonas",
-            Some("Author's GitHub"),
-            vec!["programming", "rust"],
+            "Marca GitHub",
+            "https://github.com/simoonas/Marca",
+            Some("Marca GitHub repository"),
+            vec!["bookmarking"],
         ),
         (
             "Wikipedia",
             "https://en.wikipedia.org/",
             Some("The free encyclopedia"),
-            vec!["reference", "wiki"],
+            vec!["wiki"],
         ),
     ];
 

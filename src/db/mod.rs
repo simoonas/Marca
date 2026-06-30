@@ -29,6 +29,11 @@ impl Database {
         eprintln!("Opening database at: {}", db_path.display());
         let conn = Connection::open(&db_path)?;
 
+        // Enable WAL mode for better concurrency and set a busy timeout
+        // to prevent SQLITE_BUSY errors when the UI and background threads access the DB.
+        conn.pragma_update(None, "journal_mode", "WAL")?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))?;
+
         let mut db = Self { conn };
         db.init_schema()?;
 

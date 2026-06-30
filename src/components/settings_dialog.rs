@@ -479,7 +479,7 @@ impl SimpleComponent for SettingsDialog {
                     .application_name("Marca")
                     .application_icon(crate::icon_names::custom::MARCA)
                     .developer_name("simoonas")
-                    .version("0.1.0")
+                    .version(env!("CARGO_PKG_VERSION"))
                     .website("https://github.com/simoonas/Marca")
                     .build();
 
