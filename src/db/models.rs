@@ -143,6 +143,13 @@ impl SortDirection {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub enum UpsertAction {
+    Created,
+    Restored,
+    Updated,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TagFilterMode {
     All, // AND - show bookmarks with ALL selected tags
     Any, // OR - show bookmarks with ANY of the selected tags

@@ -21,6 +21,7 @@ murmur3 = "0.5"
 relm4-icons = "0.10"
 gdk-pixbuf = "0.20"
 serde = { version = "1.0.228", features = ["derive"] }
+clap = { version = "4", features = ["derive"] }
 
 [build-dependencies]
 relm4-icons-build = "0.10"

@@ -7,7 +7,15 @@ mod icon_names {
     include!(concat!(env!("OUT_DIR"), "/icon_names.rs"));
 }
 use adw::prelude::*;
+use clap::Parser;
 use relm4::{RelmApp, main_application};
+
+#[derive(Parser)]
+#[command(name = "marca", version)]
+struct Cli {
+    #[arg(long)]
+    add: Option<String>,
+}
 
 fn main() {
     relm4_icons::initialize_icons(icon_names::GRESOURCE_BYTES, icon_names::RESOURCE_PREFIX);
@@ -19,39 +27,26 @@ fn main() {
     gtk_app.connect_command_line(move |app, cmdline| {
         let args = cmdline.arguments();
 
-        let mut is_add_bookmark = false;
-        let mut bookmark_text = String::new();
-
-        // Simple CLI argument parsing
-        for i in 1..args.len() {
-            let arg = args[i].to_string_lossy();
-            if arg == "--add" && i + 1 < args.len() {
-                bookmark_text = args[i + 1].to_string_lossy().to_string();
-                is_add_bookmark = true;
-                break;
-            }
-        }
+        let cli = Cli::try_parse_from(args.iter().map(|p| p.to_string_lossy().into_owned())).ok();
 
         let is_ui_visible = app.windows().iter().any(|w| w.is_visible());
 
-        if is_add_bookmark {
+        if let Some(Cli { add: Some(ref url) }) = cli {
             if is_ui_visible {
-                // UI is running and visible, send message to it
                 if let Some(sender) = app::APP_SENDER.get() {
-                    let _ = sender.send(app::AppMsg::AddBookmarkFromCli(bookmark_text));
+                    let _ = sender.send(app::AppMsg::AddBookmarkFromCli(url.clone()));
                 }
             } else {
-                // UI is not visible, do it headlessly and quit
                 let app_clone = app.clone();
+                let url = url.clone();
                 adw::glib::MainContext::default().spawn_local(async move {
-                    if let Err(e) = app::process_background_bookmark(&bookmark_text, None).await {
+                    if let Err(e) = app::process_background_bookmark(&url, None).await {
                         eprintln!("Background bookmark error: {}", e);
                     }
                     app_clone.quit();
                 });
             }
         } else {
-            // Normal launch, just activate the window
             app.activate();
         }
 

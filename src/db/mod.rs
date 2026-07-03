@@ -5,7 +5,9 @@ mod schema;
 pub mod seed;
 
 pub use import::ImportResult;
-pub use models::{Bookmark, BookmarkWithTags, SortDirection, SortField, Tag, TagFilterMode};
+pub use models::{
+    Bookmark, BookmarkWithTags, SortDirection, SortField, Tag, TagFilterMode, UpsertAction,
+};
 
 use rusqlite::{Connection, Result, Transaction};
 use std::path::PathBuf;
@@ -149,6 +151,37 @@ impl Database {
         let mut bookmark = Bookmark::new(title.to_string(), url.to_string());
         bookmark.note = note.map(|s| s.to_string());
         queries::insert_bookmark(&self.conn, &bookmark)
+    }
+
+    pub fn find_bookmark_by_url(&self, url: &str) -> Result<Option<Bookmark>> {
+        queries::find_bookmark_by_url(&self.conn, url)
+    }
+
+    /// Insert or update a bookmark by URL. Returns the bookmark id and what action was taken.
+    /// - URL not found: creates a new bookmark → `(id, UpsertAction::Created)`
+    /// - URL found and trashed: restores and updates metadata → `(id, UpsertAction::Restored)`
+    /// - URL found and active: updates metadata → `(id, UpsertAction::Updated)`
+    pub fn upsert_bookmark(
+        &self,
+        title: &str,
+        url: &str,
+        note: Option<&str>,
+    ) -> Result<(i64, UpsertAction)> {
+        let existing = self.find_bookmark_by_url(url)?;
+        if let Some(bm) = existing {
+            let id = bm.id.expect("bookmark id should be set");
+            if bm.deleted {
+                self.restore_bookmark(id)?;
+                self.update_bookmark(id, title, url, note)?;
+                Ok((id, UpsertAction::Restored))
+            } else {
+                self.update_bookmark(id, title, url, note)?;
+                Ok((id, UpsertAction::Updated))
+            }
+        } else {
+            let id = self.insert_bookmark(title, url, note)?;
+            Ok((id, UpsertAction::Created))
+        }
     }
 
     pub fn update_bookmark(

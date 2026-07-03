@@ -966,86 +966,84 @@ impl SimpleComponent for App {
                     return;
                 }
 
-                // Insert new bookmark into database
-                match self.db.insert_bookmark(&title, &url, note.as_deref()) {
-                    Ok(bookmark_id) => {
-                        // Update tags for the new bookmark
-                        if let Err(e) = self.db.update_bookmark_tags(bookmark_id, &tag_titles) {
-                            eprintln!("Error adding bookmark tags: {}", e);
-                            let toast = adw::Toast::new("Failed to add tags");
+                // Insert or update bookmark by URL (restores if trashed)
+                let (bookmark_id, action) =
+                    match self.db.upsert_bookmark(&title, &url, note.as_deref()) {
+                        Ok(result) => result,
+                        Err(e) => {
+                            eprintln!("Error saving bookmark: {}", e);
+                            let toast = adw::Toast::new("Failed to save bookmark");
                             self.toast_overlay.add_toast(toast);
+                            return;
                         }
+                    };
 
-                        // Close dialog explicitly
-                        if let Some(dialog) = self.edit_dialog.take() {
-                            dialog.widget().close();
-                        }
+                // Update tags for the bookmark
+                if let Err(e) = self.db.update_bookmark_tags(bookmark_id, &tag_titles) {
+                    eprintln!("Error updating bookmark tags: {}", e);
+                    let toast = adw::Toast::new("Failed to update tags");
+                    self.toast_overlay.add_toast(toast);
+                }
 
-                        // Refresh bookmarks and tags
-                        _sender.input(AppMsg::RefreshBookmarks);
-                        _sender.input(AppMsg::RefreshTags);
+                // Close dialog explicitly
+                if let Some(dialog) = self.edit_dialog.take() {
+                    dialog.widget().close();
+                }
 
-                        // Show success toast
-                        let toast = adw::Toast::new("Bookmark created");
-                        self.toast_overlay.add_toast(toast);
+                // Refresh bookmarks and tags
+                _sender.input(AppMsg::RefreshBookmarks);
+                _sender.input(AppMsg::RefreshTags);
 
-                        // Fast path: reuse existing favicon hash for this domain
-                        if let Some(domain) = crate::fetch_metadata::extract_domain(&url)
-                            && let Ok(Some(hash)) = self.db.get_favicon_hash_for_domain(&domain)
-                        {
-                            if let Err(e) = self.db.update_bookmark_favicon_hash(bookmark_id, hash)
+                // Show success toast
+                let action_str = match action {
+                    crate::db::UpsertAction::Created => "created",
+                    crate::db::UpsertAction::Restored => "restored",
+                    crate::db::UpsertAction::Updated => "updated",
+                };
+                let toast = adw::Toast::new(&format!("Bookmark {}", action_str));
+                self.toast_overlay.add_toast(toast);
+
+                // Fast path: reuse existing favicon hash for this domain
+                if let Some(domain) = crate::fetch_metadata::extract_domain(&url)
+                    && let Ok(Some(hash)) = self.db.get_favicon_hash_for_domain(&domain)
+                {
+                    if let Err(e) = self.db.update_bookmark_favicon_hash(bookmark_id, hash) {
+                        eprintln!("Error updating bookmark favicon hash: {}", e);
+                    }
+                    _sender.input(AppMsg::RefreshBookmarks);
+                    return;
+                }
+
+                // Spawn async favicon fetch AFTER dialog closed (non-blocking)
+                let url_clone = url.clone();
+                let sender_clone = _sender.clone();
+                tokio::spawn(async move {
+                    // Run blocking favicon fetch in a blocking thread pool
+                    let result = tokio::task::spawn_blocking(move || {
+                        crate::fetch_metadata::fetch_favicon_sync(&url_clone)
+                    })
+                    .await
+                    .ok()
+                    .flatten();
+
+                    if let Some((hash, favicon_data)) = result {
+                        // Create new DB connection for async task
+                        if let Ok(db) = crate::db::Database::new() {
+                            // Insert favicon if new (INSERT OR IGNORE handles hash collisions)
+                            if let Err(e) = db.insert_favicon_if_new(hash, &favicon_data) {
+                                eprintln!("Error saving favicon data: {}", e);
+                            }
+                            // Update bookmark's favicon_hash field
+                            if let Err(e) =
+                                db.update_bookmark_favicon_hash(bookmark_id, hash)
                             {
                                 eprintln!("Error updating bookmark favicon hash: {}", e);
                             }
-                            _sender.input(AppMsg::RefreshBookmarks);
-                            return;
+                            // Refresh bookmarks to show new favicon
+                            sender_clone.input(AppMsg::RefreshBookmarks);
                         }
-
-                        // Spawn async favicon fetch AFTER dialog closed (non-blocking)
-                        let url_clone = url.clone();
-                        let sender_clone = _sender.clone();
-                        tokio::spawn(async move {
-                            // Run blocking favicon fetch in a blocking thread pool
-                            let result = tokio::task::spawn_blocking(move || {
-                                crate::fetch_metadata::fetch_favicon_sync(&url_clone)
-                            })
-                            .await
-                            .ok()
-                            .flatten();
-
-                            if let Some((hash, favicon_data)) = result {
-                                // Create new DB connection for async task
-                                if let Ok(db) = crate::db::Database::new() {
-                                    // Insert favicon if new (INSERT OR IGNORE handles hash collisions)
-                                    if let Err(e) = db.insert_favicon_if_new(hash, &favicon_data) {
-                                        eprintln!("Error saving favicon data: {}", e);
-                                    }
-                                    // Update bookmark's favicon_hash field
-                                    if let Err(e) =
-                                        db.update_bookmark_favicon_hash(bookmark_id, hash)
-                                    {
-                                        eprintln!("Error updating bookmark favicon hash: {}", e);
-                                    }
-                                    // Refresh bookmarks to show new favicon
-                                    sender_clone.input(AppMsg::RefreshBookmarks);
-                                }
-                            }
-                        });
                     }
-                    Err(e) => {
-                        eprintln!("Error creating bookmark: {}", e);
-                        // Check if it's a duplicate URL error
-                        let error_msg = e.to_string();
-                        let toast_message = if error_msg.contains("UNIQUE constraint failed") {
-                            "A bookmark with this URL already exists"
-                        } else {
-                            "Failed to create bookmark"
-                        };
-                        let toast = adw::Toast::new(toast_message);
-                        self.toast_overlay.add_toast(toast);
-                        // Don't close dialog on error - let user retry
-                    }
-                }
+                });
             }
 
             AppMsg::ShowToast(msg) => {
@@ -1794,19 +1792,27 @@ pub async fn process_background_bookmark(
 
     // 3. Database operations
     let db = crate::db::Database::new()?;
-    let bookmark_id = db.insert_bookmark(&title, &url, metadata.description.as_deref())?;
+    let (bookmark_id, action) =
+        db.upsert_bookmark(&title, &url, metadata.description.as_deref())?;
 
     // Send notification
     let app = relm4::main_application();
-    let notification = adw::gio::Notification::new("Bookmark Added");
+    let action_str = match action {
+        crate::db::UpsertAction::Created => "added",
+        crate::db::UpsertAction::Restored => "restored",
+        crate::db::UpsertAction::Updated => "updated",
+    };
+    let notification =
+        adw::gio::Notification::new(&format!("Bookmark {}", action_str));
     notification.set_body(Some(&title));
     app.send_notification(Some("bookmark-added"), &notification);
 
     if let Some(sender) = &sender {
         let _ = sender.send(AppMsg::RefreshBookmarks);
-        let _ = sender.send(AppMsg::ShowToast(
-            "Bookmark added from clipboard".to_string(),
-        ));
+        let _ = sender.send(AppMsg::ShowToast(format!(
+            "Bookmark {} from clipboard",
+            action_str
+        )));
     }
 
     // 4. Fetch favicon

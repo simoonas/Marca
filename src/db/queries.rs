@@ -20,6 +20,29 @@ pub fn insert_bookmark(conn: &Connection, bookmark: &Bookmark) -> Result<i64> {
     Ok(conn.last_insert_rowid())
 }
 
+pub fn find_bookmark_by_url(conn: &Connection, url: &str) -> Result<Option<Bookmark>> {
+    let mut stmt = conn.prepare(
+        "SELECT id, title, url, note, content, created, changed, favicon_hash, deleted
+         FROM bookmarks WHERE url = ?1",
+    )?;
+    let mut rows = stmt.query(params![url])?;
+    if let Some(row) = rows.next()? {
+        Ok(Some(Bookmark {
+            id: Some(row.get(0)?),
+            title: row.get(1)?,
+            url: row.get(2)?,
+            note: row.get(3)?,
+            content: row.get(4)?,
+            created: row.get(5)?,
+            changed: row.get(6)?,
+            favicon_hash: row.get(7)?,
+            deleted: row.get::<_, i32>(8)? != 0,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
 pub fn count_bookmarks(conn: &Connection) -> Result<i64> {
     conn.query_row("SELECT COUNT(*) FROM bookmarks", [], |r| r.get(0))
 }
