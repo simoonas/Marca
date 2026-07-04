@@ -12,6 +12,79 @@ use relm4::prelude::*;
 use relm4::typed_view::list::TypedListView;
 use std::sync::OnceLock;
 
+#[derive(Clone, Copy, PartialEq)]
+enum TagSection {
+    Pinned,
+    Unpinned,
+    Special,
+}
+
+impl App {
+    fn tag_section_widget(&self, section: TagSection) -> gtk::ListBox {
+        match section {
+            TagSection::Pinned => self.pinned_tags.widget().clone(),
+            TagSection::Unpinned => self.unpinned_tags.widget().clone(),
+            TagSection::Special => self.special_tags.widget().clone(),
+        }
+    }
+
+    fn tag_section_len(&mut self, section: TagSection) -> usize {
+        match section {
+            TagSection::Pinned => self.pinned_tags.guard().len(),
+            TagSection::Unpinned => self.unpinned_tags.guard().len(),
+            TagSection::Special => self.special_tags.guard().len(),
+        }
+    }
+
+    fn resolve_tag_section(&self, widget: &gtk::Widget) -> Option<TagSection> {
+        for &section in &[
+            TagSection::Pinned,
+            TagSection::Unpinned,
+            TagSection::Special,
+        ] {
+            let listbox = self.tag_section_widget(section);
+            let w = listbox.upcast_ref::<gtk::Widget>();
+            if widget.is_ancestor(w) || widget.parent().as_ref() == Some(w) {
+                return Some(section);
+            }
+        }
+        None
+    }
+
+    fn focused_tag_section_and_row(&self) -> Option<(TagSection, gtk::ListBoxRow)> {
+        let focused = gtk::prelude::RootExt::focus(&self.window)?;
+        let row = focused
+            .ancestor(gtk::ListBoxRow::static_type())
+            .and_downcast::<gtk::ListBoxRow>()?;
+        let section = self.resolve_tag_section(row.upcast_ref::<gtk::Widget>())?;
+        Some((section, row))
+    }
+
+    fn focused_tag_section(&self) -> Option<TagSection> {
+        let (section, _) = self.focused_tag_section_and_row()?;
+        Some(section)
+    }
+
+    fn is_focus_in_tag_area(&self) -> bool {
+        let Some(focused) = gtk::prelude::RootExt::focus(&self.window) else {
+            return false;
+        };
+        let focused_widget = focused.upcast_ref::<gtk::Widget>();
+        for &section in &[
+            TagSection::Pinned,
+            TagSection::Unpinned,
+            TagSection::Special,
+        ] {
+            let listbox = self.tag_section_widget(section);
+            let w = listbox.upcast_ref::<gtk::Widget>();
+            if focused_widget == w || focused_widget.is_ancestor(w) {
+                return true;
+            }
+        }
+        false
+    }
+}
+
 pub static APP_SENDER: OnceLock<relm4::Sender<AppMsg>> = OnceLock::new();
 
 pub struct App {
@@ -19,6 +92,7 @@ pub struct App {
     bookmarks: TypedListView<BookmarkListItem, gtk::SingleSelection>,
     pinned_tags: FactoryVecDeque<TagRow>,
     unpinned_tags: FactoryVecDeque<TagRow>,
+    special_tags: FactoryVecDeque<TagRow>,
     pinned_tag_ids: Vec<i64>,
     bookmark_search: String,
     tag_search: String,
@@ -175,60 +249,72 @@ impl SimpleComponent for App {
                             },
 
                             #[wrap(Some)]
-                            set_content = &gtk::ScrolledWindow {
-                                set_hscrollbar_policy: gtk::PolicyType::Never,
-                                set_vscrollbar_policy: gtk::PolicyType::Automatic,
+                            set_content = &gtk::Box {
+                                set_orientation: gtk::Orientation::Vertical,
 
-                                gtk::Box {
-                                    set_orientation: gtk::Orientation::Vertical,
-                                    #[local_ref]
-                                    pinned_tags_list -> gtk::ListBox {
-                                        set_css_classes: &["navigation-sidebar"],
-                                    },
+                                gtk::ScrolledWindow {
+                                    set_hscrollbar_policy: gtk::PolicyType::Never,
+                                    set_vscrollbar_policy: gtk::PolicyType::Automatic,
+                                    set_vexpand: true,
+                                    #[watch]
+                                    set_visible: !model.pinned_tags.is_empty() || !model.unpinned_tags.is_empty(),
 
                                     gtk::Box {
-                                        set_orientation: gtk::Orientation::Horizontal,
-                                        set_spacing: 8,
-                                        set_margin_top: 6,
-                                        set_margin_bottom: 6,
-                                        set_margin_start: 12,
-                                        set_margin_end: 12,
-                                        #[watch]
-                                        set_visible: !model.pinned_tags.is_empty(),
-
-                                        gtk::Separator {
-                                            set_orientation: gtk::Orientation::Horizontal,
-                                            set_hexpand: true,
-                                            set_valign: gtk::Align::Center,
-                                            set_vexpand: false,
+                                        set_orientation: gtk::Orientation::Vertical,
+                                        #[local_ref]
+                                        pinned_tags_list -> gtk::ListBox {
+                                            set_css_classes: &["navigation-sidebar"],
                                         },
 
-                                        gtk::Label {
-                                            set_label: "clear",
-                                            add_css_class: "dim-label",
-                                            add_css_class: "caption",
-                                            set_valign: gtk::Align::Center,
-                                            set_cursor_from_name: Some("pointer"),
+                                        gtk::Box {
+                                            set_orientation: gtk::Orientation::Horizontal,
+                                            set_spacing: 8,
+                                            set_margin_top: 6,
+                                            set_margin_bottom: 6,
+                                            set_margin_start: 12,
+                                            set_margin_end: 12,
+                                            #[watch]
+                                            set_visible: !model.pinned_tags.is_empty(),
 
-                                            add_controller = gtk::GestureClick {
-                                                connect_released[sender] => move |_, _, _, _| {
-                                                    sender.input(AppMsg::ClearPinnedTags);
+                                            gtk::Separator {
+                                                set_orientation: gtk::Orientation::Horizontal,
+                                                set_hexpand: true,
+                                                set_valign: gtk::Align::Center,
+                                                set_vexpand: false,
+                                            },
+
+                                            gtk::Label {
+                                                set_label: "clear",
+                                                add_css_class: "dim-label",
+                                                add_css_class: "caption",
+                                                set_valign: gtk::Align::Center,
+                                                set_cursor_from_name: Some("pointer"),
+
+                                                add_controller = gtk::GestureClick {
+                                                    connect_released[sender] => move |_, _, _, _| {
+                                                        sender.input(AppMsg::ClearPinnedTags);
+                                                    }
                                                 }
-                                            }
+                                            },
+
+                                            gtk::Separator {
+                                                set_orientation: gtk::Orientation::Horizontal,
+                                                set_hexpand: true,
+                                                set_valign: gtk::Align::Center,
+                                                set_vexpand: false,
+                                            },
                                         },
 
-                                        gtk::Separator {
-                                            set_orientation: gtk::Orientation::Horizontal,
-                                            set_hexpand: true,
-                                            set_valign: gtk::Align::Center,
-                                            set_vexpand: false,
+                                        #[local_ref]
+                                        unpinned_tags_list -> gtk::ListBox {
+                                            set_css_classes: &["navigation-sidebar"],
                                         },
-                                    },
-
-                                    #[local_ref]
-                                    unpinned_tags_list -> gtk::ListBox {
-                                        set_css_classes: &["navigation-sidebar"],
                                     }
+                                },
+
+                                #[local_ref]
+                                special_tags_list -> gtk::ListBox {
+                                    set_css_classes: &["navigation-sidebar"],
                                 }
                             }
                         }
@@ -401,6 +487,13 @@ impl SimpleComponent for App {
                 TagRowOutput::Rename(tag_id, new_title) => AppMsg::TagRenamed(tag_id, new_title),
             });
 
+        let special_tags = FactoryVecDeque::builder()
+            .launch(gtk::ListBox::default())
+            .forward(sender.input_sender(), |output| match output {
+                TagRowOutput::Toggle(tag_id) => AppMsg::TagToggled(tag_id),
+                TagRowOutput::Rename(tag_id, new_title) => AppMsg::TagRenamed(tag_id, new_title),
+            });
+
         let toast_overlay = adw::ToastOverlay::new();
 
         let mut model = App {
@@ -408,6 +501,7 @@ impl SimpleComponent for App {
             bookmarks,
             pinned_tags,
             unpinned_tags,
+            special_tags,
             pinned_tag_ids: Vec::new(),
             bookmark_search: String::new(),
             tag_search: String::new(),
@@ -436,6 +530,7 @@ impl SimpleComponent for App {
         let bookmarks_list = &model.bookmarks.view;
         let pinned_tags_list = model.pinned_tags.widget();
         let unpinned_tags_list = model.unpinned_tags.widget();
+        let special_tags_list = model.special_tags.widget();
         let toast_overlay = &model.toast_overlay;
         let widgets = view_output!();
 
@@ -600,13 +695,11 @@ impl SimpleComponent for App {
             }
 
             AppMsg::PinTopTag => {
-                let unpinned_guard = self.unpinned_tags.guard();
+                let top_id = self.unpinned_tags.guard().iter().find_map(|t| t.tag.id);
+                let tag_id =
+                    top_id.or_else(|| self.special_tags.guard().iter().find_map(|t| t.tag.id));
 
-                let top_unpinned = unpinned_guard.iter().find_map(|t| t.tag.id);
-
-                drop(unpinned_guard);
-
-                if let Some(tag_id) = top_unpinned {
+                if let Some(tag_id) = tag_id {
                     self.pinned_tag_ids.push(tag_id);
                     _sender.input(AppMsg::RefreshTags);
                     _sender.input(AppMsg::RefreshBookmarks);
@@ -615,23 +708,10 @@ impl SimpleComponent for App {
 
             AppMsg::TagToggled(tag_id) => {
                 let mut focus_search = false;
-                if let Some(focused) = gtk::prelude::RootExt::focus(&self.window)
-                    && let Some(row) = focused
-                        .ancestor(gtk::ListBoxRow::static_type())
-                        .and_downcast::<gtk::ListBoxRow>()
+                if let Some(section) = self.focused_tag_section()
+                    && self.tag_section_len(section) == 1
                 {
-                    let row_widget = row.upcast_ref::<gtk::Widget>();
-                    if row_widget.is_ancestor(self.pinned_tags.widget().upcast_ref::<gtk::Widget>())
-                    {
-                        if self.pinned_tags.guard().len() == 1 {
-                            focus_search = true;
-                        }
-                    } else if row_widget
-                        .is_ancestor(self.unpinned_tags.widget().upcast_ref::<gtk::Widget>())
-                        && self.unpinned_tags.guard().len() == 1
-                    {
-                        focus_search = true;
-                    }
+                    focus_search = true;
                 }
 
                 // Toggle pin state
@@ -667,21 +747,10 @@ impl SimpleComponent for App {
             AppMsg::RefreshTags => {
                 match self.db.get_all_tags() {
                     Ok(mut tags) => {
-                        // Add synthetic "Untagged" tag for bookmarks without tags
-                        let untagged_tag = crate::db::Tag {
-                            id: Some(UNTAGGED_TAG_ID),
-                            title: "NOT #TAGGED".to_string(),
-                        };
-                        tags.push(untagged_tag);
-                        let trashed_tag = crate::db::Tag {
-                            id: Some(TRASHED_TAG_ID),
-                            title: "trashed".to_string(),
-                        };
-                        tags.push(trashed_tag);
-                        // Sort tags alphabetically (Untagged will be last due to 'U')
+                        // Sort real tags alphabetically
                         tags.sort_by(|a, b| a.title.cmp(&b.title));
 
-                        // Filter by search query if active
+                        // Filter real tags by search query if active
                         if !self.tag_search.is_empty() {
                             let query_normalized =
                                 deunicode::deunicode(&self.tag_search.to_lowercase());
@@ -691,7 +760,7 @@ impl SimpleComponent for App {
                             });
                         }
 
-                        // Separate into pinned and unpinned
+                        // Separate real tags into pinned and unpinned
                         let (pinned, unpinned): (Vec<_>, Vec<_>) =
                             tags.into_iter().partition(|tag| {
                                 tag.id
@@ -699,11 +768,37 @@ impl SimpleComponent for App {
                                     .unwrap_or(false)
                             });
 
-                        // Update pinned tags factory
+                        // Synthetic tags
+                        let untagged_tag = crate::db::Tag {
+                            id: Some(UNTAGGED_TAG_ID),
+                            title: "NOT #TAGGED".to_string(),
+                        };
+                        let trashed_tag = crate::db::Tag {
+                            id: Some(TRASHED_TAG_ID),
+                            title: "trashed".to_string(),
+                        };
+
+                        // Partition synthetic tags into pinned vs special
+                        let mut pinned_synthetic = Vec::new();
+                        let mut unpinned_synthetic = Vec::new();
+                        for tag in [untagged_tag, trashed_tag] {
+                            if let Some(id) = tag.id
+                                && self.pinned_tag_ids.contains(&id)
+                            {
+                                pinned_synthetic.push(tag);
+                            } else {
+                                unpinned_synthetic.push(tag);
+                            }
+                        }
+
+                        // Update pinned tags factory (real pinned + synthetic pinned)
                         {
                             let mut guard = self.pinned_tags.guard();
                             guard.clear();
                             for tag in pinned {
+                                guard.push_back(tag);
+                            }
+                            for tag in pinned_synthetic {
                                 guard.push_back(tag);
                             }
                         }
@@ -713,6 +808,15 @@ impl SimpleComponent for App {
                             let mut guard = self.unpinned_tags.guard();
                             guard.clear();
                             for tag in unpinned {
+                                guard.push_back(tag);
+                            }
+                        }
+
+                        // Special synthetic tags (always at bottom, unaffected by search)
+                        {
+                            let mut guard = self.special_tags.guard();
+                            guard.clear();
+                            for tag in unpinned_synthetic {
                                 guard.push_back(tag);
                             }
                         }
@@ -1034,9 +1138,7 @@ impl SimpleComponent for App {
                                 eprintln!("Error saving favicon data: {}", e);
                             }
                             // Update bookmark's favicon_hash field
-                            if let Err(e) =
-                                db.update_bookmark_favicon_hash(bookmark_id, hash)
-                            {
+                            if let Err(e) = db.update_bookmark_favicon_hash(bookmark_id, hash) {
                                 eprintln!("Error updating bookmark favicon hash: {}", e);
                             }
                             // Refresh bookmarks to show new favicon
@@ -1103,36 +1205,16 @@ impl SimpleComponent for App {
                     let focused_widget = focused.upcast_ref::<gtk::Widget>();
                     let tag_search = self.tag_search_entry.upcast_ref::<gtk::Widget>();
 
-                    let pinned_widget = self.pinned_tags.widget().clone();
-                    let unpinned_widget = self.unpinned_tags.widget().clone();
-                    let bms = &self.bookmarks.view;
-                    let bms_widget = bms.upcast_ref::<gtk::Widget>();
-
                     // Check if a specific TagRow is focused to add the Edit hotkey
                     let mut focused_tag_id = None;
-                    if let Some(row) = focused_widget
-                        .ancestor(gtk::ListBoxRow::static_type())
-                        .and_downcast::<gtk::ListBoxRow>()
-                    {
-                        let row_widget = row.upcast_ref::<gtk::Widget>();
-                        if row_widget.is_ancestor(pinned_widget.upcast_ref::<gtk::Widget>())
-                            || row_widget.parent().as_ref()
-                                == Some(pinned_widget.upcast_ref::<gtk::Widget>())
-                        {
-                            let idx = row.index() as usize;
-                            if let Some(tag_row) = self.pinned_tags.guard().get(idx) {
-                                focused_tag_id = tag_row.tag.id;
-                            }
-                        } else if row_widget
-                            .is_ancestor(unpinned_widget.upcast_ref::<gtk::Widget>())
-                            || row_widget.parent().as_ref()
-                                == Some(unpinned_widget.upcast_ref::<gtk::Widget>())
-                        {
-                            let idx = row.index() as usize;
-                            if let Some(tag_row) = self.unpinned_tags.guard().get(idx) {
-                                focused_tag_id = tag_row.tag.id;
-                            }
-                        }
+                    if let Some((section, row)) = self.focused_tag_section_and_row() {
+                        let idx = row.index() as usize;
+                        let guard = match section {
+                            TagSection::Pinned => self.pinned_tags.guard(),
+                            TagSection::Unpinned => self.unpinned_tags.guard(),
+                            TagSection::Special => self.special_tags.guard(),
+                        };
+                        focused_tag_id = guard.get(idx).and_then(|t| t.tag.id);
                     }
 
                     // Check if a specific Bookmark is focused to add Edit/Delete hotkeys
@@ -1157,10 +1239,7 @@ impl SimpleComponent for App {
 
                     if focused_widget == tag_search
                         || focused_widget.is_ancestor(tag_search)
-                        || focused_widget == pinned_widget.upcast_ref::<gtk::Widget>()
-                        || focused_widget.is_ancestor(pinned_widget.upcast_ref::<gtk::Widget>())
-                        || focused_widget == unpinned_widget.upcast_ref::<gtk::Widget>()
-                        || focused_widget.is_ancestor(unpinned_widget.upcast_ref::<gtk::Widget>())
+                        || self.is_focus_in_tag_area()
                     {
                         let mut actions = vec![];
 
@@ -1192,8 +1271,9 @@ impl SimpleComponent for App {
                         let bm_search = self.bookmark_search_entry.upcast_ref::<gtk::Widget>();
                         if focused_widget == bm_search
                             || focused_widget.is_ancestor(bm_search)
-                            || focused_widget == bms_widget
-                            || focused_widget.is_ancestor(bms_widget)
+                            || focused_widget == self.bookmarks.view.upcast_ref::<gtk::Widget>()
+                            || focused_widget
+                                .is_ancestor(self.bookmarks.view.upcast_ref::<gtk::Widget>())
                         {
                             let mut actions = vec![];
 
@@ -1253,6 +1333,7 @@ impl SimpleComponent for App {
                             .widget()
                             .row_at_index(0)
                             .or_else(|| self.unpinned_tags.widget().row_at_index(0))
+                            .or_else(|| self.special_tags.widget().row_at_index(0))
                         {
                             first.grab_focus();
                         }
@@ -1292,38 +1373,23 @@ impl SimpleComponent for App {
                             );
                         }
                         self.bookmarks.view.grab_focus();
-                    } else if let Some(row) = focused
-                        .ancestor(gtk::ListBoxRow::static_type())
-                        .and_downcast::<gtk::ListBoxRow>()
-                    {
-                        let row_widget = row.upcast_ref::<gtk::Widget>();
-                        if row_widget
-                            .is_ancestor(self.pinned_tags.widget().upcast_ref::<gtk::Widget>())
-                        {
-                            if let Some(next) =
-                                self.pinned_tags.widget().row_at_index(row.index() + 1)
-                            {
-                                next.grab_focus();
-                            } else if let Some(first) = self.unpinned_tags.widget().row_at_index(0)
-                            {
-                                first.grab_focus();
-                            } else if let Some(first) = self.pinned_tags.widget().row_at_index(0) {
-                                first.grab_focus();
-                            }
-                        } else if row_widget
-                            .is_ancestor(self.unpinned_tags.widget().upcast_ref::<gtk::Widget>())
-                        {
-                            if let Some(next) =
-                                self.unpinned_tags.widget().row_at_index(row.index() + 1)
-                            {
-                                next.grab_focus();
-                            } else if let Some(first) = self
-                                .pinned_tags
-                                .widget()
-                                .row_at_index(0)
-                                .or_else(|| self.unpinned_tags.widget().row_at_index(0))
-                            {
-                                first.grab_focus();
+                    } else if let Some((section, row)) = self.focused_tag_section_and_row() {
+                        const ORDER: [TagSection; 3] = [
+                            TagSection::Pinned,
+                            TagSection::Unpinned,
+                            TagSection::Special,
+                        ];
+                        let widget = self.tag_section_widget(section);
+                        if let Some(next) = widget.row_at_index(row.index() + 1) {
+                            next.grab_focus();
+                        } else {
+                            let start = ORDER.iter().position(|&s| s == section).unwrap();
+                            for i in 1..=ORDER.len() {
+                                let sec = ORDER[(start + i) % ORDER.len()];
+                                if let Some(first) = self.tag_section_widget(sec).row_at_index(0) {
+                                    first.grab_focus();
+                                    break;
+                                }
                             }
                         }
                     }
@@ -1354,64 +1420,37 @@ impl SimpleComponent for App {
                             );
                         }
                         self.bookmarks.view.grab_focus();
-                    } else if let Some(row) = focused
-                        .ancestor(gtk::ListBoxRow::static_type())
-                        .and_downcast::<gtk::ListBoxRow>()
-                    {
-                        let row_widget = row.upcast_ref::<gtk::Widget>();
-                        if row_widget
-                            .is_ancestor(self.pinned_tags.widget().upcast_ref::<gtk::Widget>())
-                        {
-                            if row.index() > 0 {
-                                if let Some(prev) =
-                                    self.pinned_tags.widget().row_at_index(row.index() - 1)
-                                {
-                                    prev.grab_focus();
-                                }
-                            } else {
-                                // at first pinned tag, wrap to last unpinned or last pinned
-                                let last_unpinned_idx = self.unpinned_tags.guard().len() as i32 - 1;
-                                if last_unpinned_idx >= 0 {
-                                    if let Some(last) =
-                                        self.unpinned_tags.widget().row_at_index(last_unpinned_idx)
-                                    {
-                                        last.grab_focus();
-                                    }
-                                } else {
-                                    let last_pinned_idx = self.pinned_tags.guard().len() as i32 - 1;
-                                    if let Some(last) =
-                                        self.pinned_tags.widget().row_at_index(last_pinned_idx)
-                                    {
-                                        last.grab_focus();
-                                    }
-                                }
+                    } else if let Some((section, row)) = self.focused_tag_section_and_row() {
+                        // Prev chain: pinned→unpinned, unpinned→special, special→pinned
+                        const PREV_TARGET: [TagSection; 3] = [
+                            TagSection::Special,
+                            TagSection::Pinned,
+                            TagSection::Unpinned,
+                        ];
+                        const ORDER: [TagSection; 3] = [
+                            TagSection::Pinned,
+                            TagSection::Unpinned,
+                            TagSection::Special,
+                        ];
+                        let widget = self.tag_section_widget(section);
+                        if row.index() > 0 {
+                            if let Some(prev) = widget.row_at_index(row.index() - 1) {
+                                prev.grab_focus();
                             }
-                        } else if row_widget
-                            .is_ancestor(self.unpinned_tags.widget().upcast_ref::<gtk::Widget>())
-                        {
-                            if row.index() > 0 {
-                                if let Some(prev) =
-                                    self.unpinned_tags.widget().row_at_index(row.index() - 1)
-                                {
-                                    prev.grab_focus();
-                                }
-                            } else {
-                                // at first unpinned tag, go to last pinned tag
-                                let last_pinned_idx = self.pinned_tags.guard().len() as i32 - 1;
-                                if last_pinned_idx >= 0 {
+                        } else {
+                            let target =
+                                PREV_TARGET[ORDER.iter().position(|&s| s == section).unwrap()];
+                            let start = ORDER.iter().position(|&s| s == target).unwrap();
+                            for i in 0..ORDER.len() {
+                                let sec = ORDER[(start + i) % ORDER.len()];
+                                let last_idx = self.tag_section_len(sec) as i32 - 1;
+                                if last_idx >= 0 {
                                     if let Some(last) =
-                                        self.pinned_tags.widget().row_at_index(last_pinned_idx)
+                                        self.tag_section_widget(sec).row_at_index(last_idx)
                                     {
                                         last.grab_focus();
                                     }
-                                } else {
-                                    let last_unpinned_idx =
-                                        self.unpinned_tags.guard().len() as i32 - 1;
-                                    if let Some(last) =
-                                        self.unpinned_tags.widget().row_at_index(last_unpinned_idx)
-                                    {
-                                        last.grab_focus();
-                                    }
+                                    break;
                                 }
                             }
                         }
@@ -1584,90 +1623,36 @@ impl SimpleComponent for App {
             }
 
             AppMsg::EditFocusedTag => {
-                let mut is_pinned = false;
-                let mut is_unpinned = false;
-                let mut row_idx = 0;
-
-                let window = self.window.clone();
-                let pinned_widget = self.pinned_tags.widget().clone();
-                let unpinned_widget = self.unpinned_tags.widget().clone();
-
-                if let Some(focused) = gtk::prelude::RootExt::focus(&window)
-                    && let Some(row) = focused
-                        .ancestor(gtk::ListBoxRow::static_type())
-                        .and_then(|a| a.downcast::<gtk::ListBoxRow>().ok())
-                {
-                    let row_widget = row.upcast_ref::<gtk::Widget>();
-                    row_idx = row.index() as usize;
-
-                    if row_widget.is_ancestor(pinned_widget.upcast_ref::<gtk::Widget>())
-                        || row_widget.parent().as_ref()
-                            == Some(pinned_widget.upcast_ref::<gtk::Widget>())
-                    {
-                        is_pinned = true;
-                    } else if row_widget.is_ancestor(unpinned_widget.upcast_ref::<gtk::Widget>())
-                        || row_widget.parent().as_ref()
-                            == Some(unpinned_widget.upcast_ref::<gtk::Widget>())
-                    {
-                        is_unpinned = true;
+                if let Some((section, row)) = self.focused_tag_section_and_row() {
+                    let row_idx = row.index() as usize;
+                    match section {
+                        TagSection::Pinned => self
+                            .pinned_tags
+                            .guard()
+                            .send(row_idx, crate::components::TagRowMsg::StartEdit),
+                        TagSection::Unpinned => self
+                            .unpinned_tags
+                            .guard()
+                            .send(row_idx, crate::components::TagRowMsg::StartEdit),
+                        TagSection::Special => {} // Synthetic tags can't be edited
                     }
-                }
-
-                if is_pinned {
-                    self.pinned_tags
-                        .guard()
-                        .send(row_idx, crate::components::TagRowMsg::StartEdit);
-                } else if is_unpinned {
-                    self.unpinned_tags
-                        .guard()
-                        .send(row_idx, crate::components::TagRowMsg::StartEdit);
                 }
             }
 
             AppMsg::DeleteFocusedTag => {
-                let window = self.window.clone();
-                let pinned_widget = self.pinned_tags.widget().clone();
-                let unpinned_widget = self.unpinned_tags.widget().clone();
-
-                if let Some(focused) = gtk::prelude::RootExt::focus(&window)
-                    && let Some(row) = focused
-                        .ancestor(gtk::ListBoxRow::static_type())
-                        .and_then(|a| a.downcast::<gtk::ListBoxRow>().ok())
-                {
-                    let row_widget = row.upcast_ref::<gtk::Widget>();
+                if let Some((section, row)) = self.focused_tag_section_and_row() {
                     let row_idx = row.index() as usize;
+                    if section == TagSection::Special {
+                        return; // Synthetic tags cannot be deleted
+                    }
+                    let guard = match section {
+                        TagSection::Pinned => self.pinned_tags.guard(),
+                        TagSection::Unpinned => self.unpinned_tags.guard(),
+                        TagSection::Special => return,
+                    };
+                    let tag_id = guard.get(row_idx).and_then(|t| t.tag.id);
 
-                    let is_pinned = row_widget
-                        .is_ancestor(pinned_widget.upcast_ref::<gtk::Widget>())
-                        || row_widget.parent().as_ref()
-                            == Some(pinned_widget.upcast_ref::<gtk::Widget>());
-                    let is_unpinned = row_widget
-                        .is_ancestor(unpinned_widget.upcast_ref::<gtk::Widget>())
-                        || row_widget.parent().as_ref()
-                            == Some(unpinned_widget.upcast_ref::<gtk::Widget>());
-
-                    if is_pinned {
-                        if let Some(tag) = self.pinned_tags.guard().get(row_idx)
-                            && let Some(tag_id) = tag.tag.id
-                        {
-                            match self.db.delete_tag(tag_id) {
-                                Ok(_) => {
-                                    let toast = adw::Toast::new("Tag deleted");
-                                    self.toast_overlay.add_toast(toast);
-                                    _sender.input(AppMsg::RefreshTags);
-                                    _sender.input(AppMsg::RefreshBookmarks);
-                                }
-                                Err(e) => {
-                                    let toast =
-                                        adw::Toast::new(&format!("Failed to delete tag: {}", e));
-                                    self.toast_overlay.add_toast(toast);
-                                }
-                            }
-                        }
-                    } else if is_unpinned
-                        && let Some(tag) = self.unpinned_tags.guard().get(row_idx)
-                        && let Some(tag_id) = tag.tag.id
-                    {
+                    if let Some(tag_id) = tag_id {
                         match self.db.delete_tag(tag_id) {
                             Ok(_) => {
                                 let toast = adw::Toast::new("Tag deleted");
@@ -1802,8 +1787,7 @@ pub async fn process_background_bookmark(
         crate::db::UpsertAction::Restored => "restored",
         crate::db::UpsertAction::Updated => "updated",
     };
-    let notification =
-        adw::gio::Notification::new(&format!("Bookmark {}", action_str));
+    let notification = adw::gio::Notification::new(&format!("Bookmark {}", action_str));
     notification.set_body(Some(&title));
     app.send_notification(Some("bookmark-added"), &notification);
 
