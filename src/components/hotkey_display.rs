@@ -107,7 +107,8 @@ impl HotkeyDisplay {
             container.set_homogeneous(false);
 
             let label = gtk::Label::new(Some(&action.label));
-            label.add_css_class("caption-heading");
+            label.add_css_class("hotkey-label");
+            label.add_css_class("dim-label");
             label.set_halign(gtk::Align::Center);
             label.set_margin_end(3);
             container.append(&label);

@@ -83,6 +83,28 @@ impl App {
         }
         false
     }
+
+    fn is_focus_in_sidebar(&self) -> bool {
+        let Some(focused) = gtk::prelude::RootExt::focus(&self.window) else {
+            return false;
+        };
+        let focused_widget = focused.upcast_ref::<gtk::Widget>();
+
+        // Check tag search entry
+        let entry = self.tag_search_entry.upcast_ref::<gtk::Widget>();
+        if focused_widget == entry || focused_widget.is_ancestor(entry) {
+            return true;
+        }
+
+        // Check tag filter button
+        let filter_btn = self.tag_filter_button.upcast_ref::<gtk::Widget>();
+        if focused_widget == filter_btn || focused_widget.is_ancestor(filter_btn) {
+            return true;
+        }
+
+        // Check tag listboxes (pinned, unpinned, special)
+        self.is_focus_in_tag_area()
+    }
 }
 
 pub static APP_SENDER: OnceLock<relm4::Sender<AppMsg>> = OnceLock::new();
@@ -106,6 +128,10 @@ pub struct App {
 
     // Hotkey display component
     hotkey_display: Controller<HotkeyDisplay>,
+
+    // Tag search toggle (button ↔ entry)
+    tag_search_button: gtk::Button,
+    tag_search_active: bool,
 
     // Hotkey widgets (for focus tracking)
     tag_search_entry: gtk::Entry,
@@ -160,6 +186,7 @@ pub enum AppMsg {
     // Hotkey system messages
     FocusChanged,
     FocusTagSearch,
+    TagSearchCollapse,
     FocusBookmarkSearch,
     NavigateNext,
     NavigatePrev,
@@ -222,29 +249,51 @@ impl SimpleComponent for App {
                                     set_hexpand: true,
                                     add_css_class: "linked",
 
+                                    #[name = "tag_search_button"]
+                                    gtk::Button {
+                                        set_hexpand: true,
+                                        set_can_focus: false,
+                                        add_css_class: "flat",
+                                        connect_clicked[sender] => move |_| {
+                                            sender.input(AppMsg::FocusTagSearch);
+                                        }
+                                    },
+
                                     #[name = "tag_search_entry"]
                                     gtk::Entry {
-                                        set_placeholder_text: Some("Search tags..."),
+                                        set_placeholder_text: Some("Ctrl+h to search"),
                                         set_hexpand: true,
+                                        set_visible: false,
                                         set_primary_icon_name: Some(HASHTAG_SYMBOLIC),
                                         connect_changed[sender] => move |entry| {
                                             sender.input(AppMsg::TagSearch(entry.text().to_string()));
                                         },
                                         connect_activate[sender] => move |_| {
                                             sender.input(AppMsg::PinTopTag);
+                                        },
+                                        add_controller = gtk::EventControllerKey {
+                                            connect_key_pressed[sender] => move |_, k, _, _| {
+                                                if k == gtk::gdk::Key::Escape {
+                                                    sender.input(AppMsg::TagSearchCollapse);
+                                                    gtk::glib::Propagation::Stop
+                                                } else {
+                                                    gtk::glib::Propagation::Proceed
+                                                }
+                                            }
                                         }
                                     },
 
-                                        #[name = "tag_filter_button"]
-                                        gtk::Button {
-                                            set_label: "all",
-                                            set_width_request: 30,
-                                            add_css_class: "compact",
-                                            set_tooltip_text: Some("Bookmarks matching all selected tags"),
-                                            connect_clicked[sender] => move |_| {
-                                                sender.input(AppMsg::CycleTagFilterMode);
-                                            }
+                                    #[name = "tag_filter_button"]
+                                    gtk::Button {
+                                        set_label: "all",
+                                        set_width_request: 30,
+                                        set_visible: false,
+                                        add_css_class: "compact",
+                                        set_tooltip_text: Some("Bookmarks matching all selected tags"),
+                                        connect_clicked[sender] => move |_| {
+                                            sender.input(AppMsg::CycleTagFilterMode);
                                         }
+                                    }
                                 }
                             },
 
@@ -264,6 +313,8 @@ impl SimpleComponent for App {
                                         #[local_ref]
                                         pinned_tags_list -> gtk::ListBox {
                                             set_css_classes: &["navigation-sidebar"],
+                                            #[watch]
+                                            set_visible: !model.pinned_tags.is_empty(),
                                         },
 
                                         gtk::Box {
@@ -515,6 +566,9 @@ impl SimpleComponent for App {
 
             hotkey_display,
 
+            tag_search_button: gtk::Button::new(),
+            tag_search_active: false,
+
             tag_search_entry: gtk::Entry::new(),
             bookmark_search_entry: gtk::SearchEntry::new(),
 
@@ -534,11 +588,25 @@ impl SimpleComponent for App {
         let toast_overlay = &model.toast_overlay;
         let widgets = view_output!();
 
+        model.tag_search_button = widgets.tag_search_button.clone();
         model.tag_search_entry = widgets.tag_search_entry.clone();
         model.bookmark_search_entry = widgets.bookmark_search_entry.clone();
         model.sort_field_button = widgets.sort_field_button.clone();
         model.sort_direction_button = widgets.sort_direction_button.clone();
         model.tag_filter_button = widgets.tag_filter_button.clone();
+
+        // Build the tag search button child (styled like hotkey display actions)
+        let container = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+        container.set_halign(gtk::Align::Center);
+        container.set_spacing(6);
+        let label = gtk::Label::new(Some("Search tags"));
+        label.add_css_class("hotkey-label");
+        label.add_css_class("dim-label");
+        container.append(&label);
+        let shortcut = adw::ShortcutLabel::new("<Ctrl>h");
+        shortcut.add_css_class("hotkey-shortcut");
+        container.append(&shortcut);
+        model.tag_search_button.set_child(Some(&container));
 
         // Load settings and check for welcome dialog
         let schema_exists = adw::gio::SettingsSchemaSource::default()
@@ -638,6 +706,7 @@ impl SimpleComponent for App {
             .untagged-tag:not(:hover) .untagged-tag-label { color: white; }
             .tag { font-weight: 750; font-family: 'Adwaita Sans'; }
              .hotkey-shortcut { font-size: 0.8em; padding: 0; margin: 0; }
+             .hotkey-label { font-size: 0.8em; padding: 0; margin: 0; }
              actionbar > revealer { min-height: 0; }
             .actionbar-btn { margin-end: 0; }
             listview > row { margin-top: 2px; margin-bottom: 1px; margin-left: 9px; margin-right: 9px; }
@@ -734,7 +803,7 @@ impl SimpleComponent for App {
                 _sender.input(AppMsg::RefreshBookmarks);
 
                 if focus_search {
-                    self.tag_search_entry.grab_focus();
+                    _sender.input(AppMsg::FocusTagSearch);
                 }
             }
 
@@ -1294,21 +1363,35 @@ impl SimpleComponent for App {
                                 });
                             }
 
-                            actions.push(HotkeyAction {
-                                id: 1,
-                                label: "Search tags".to_string(),
-                                accelerator: "<Ctrl>h".to_string(),
-                            });
-
                             self.hotkey_display
                                 .emit(HotkeyDisplayMsg::UpdateActions(actions));
                         }
                     }
                 }
+
+                // Collapse tag search when focus leaves the sidebar
+                if self.tag_search_active && !self.is_focus_in_sidebar() {
+                    _sender.input(AppMsg::TagSearchCollapse);
+                }
             }
 
             AppMsg::FocusTagSearch => {
+                self.tag_search_active = true;
+                self.tag_search_entry.set_visible(true);
+                self.tag_search_button.set_visible(false);
+                self.tag_filter_button.set_visible(true);
                 self.tag_search_entry.grab_focus();
+            }
+
+            AppMsg::TagSearchCollapse => {
+                if self.tag_search_active {
+                    self.tag_search_active = false;
+                    self.tag_search_entry.set_visible(false);
+                    self.tag_search_button.set_visible(true);
+                    self.tag_filter_button.set_visible(false);
+                    self.tag_search.clear();
+                    _sender.input(AppMsg::RefreshTags);
+                }
             }
 
             AppMsg::FocusBookmarkSearch => {
@@ -1598,7 +1681,7 @@ impl SimpleComponent for App {
                     }
                     1 => {
                         // Search tags action
-                        self.tag_search_entry.grab_focus();
+                        _sender.input(AppMsg::FocusTagSearch);
                     }
                     2 => {
                         // Edit tag inline
