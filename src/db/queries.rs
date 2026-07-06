@@ -446,6 +446,7 @@ pub fn delete_tag(conn: &Connection, id: i64) -> Result<()> {
     )?;
 
     tx.commit()?;
+    cleanup_orphan_tags(conn)?;
     Ok(())
 }
 
@@ -574,6 +575,7 @@ pub fn get_favicon_hash_for_domain(conn: &Connection, domain: &str) -> Result<Op
 
 pub fn clear_trashed_bookmarks(conn: &Connection) -> Result<usize> {
     let count = conn.execute("DELETE FROM bookmarks WHERE deleted = 1", [])?;
+    cleanup_orphan_tags(conn)?;
     Ok(count)
 }
 
@@ -589,6 +591,6 @@ pub fn gc_deleted_bookmarks(conn: &Connection, days: u32) -> Result<usize> {
         "DELETE FROM bookmarks WHERE deleted = 1 AND changed < ?1",
         params![threshold],
     )?;
-
+    cleanup_orphan_tags(conn)?;
     Ok(count)
 }

@@ -261,7 +261,7 @@ impl SimpleComponent for App {
 
                                     #[name = "tag_search_entry"]
                                     gtk::Entry {
-                                        set_placeholder_text: Some("Ctrl+h to search"),
+                                        set_placeholder_text: Some("Search tags"),
                                         set_hexpand: true,
                                         set_visible: false,
                                         set_primary_icon_name: Some(HASHTAG_SYMBOLIC),
