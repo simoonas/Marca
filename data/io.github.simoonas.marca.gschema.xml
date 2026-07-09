@@ -6,6 +6,11 @@
       <summary>Days before clearing deleted bookmarks</summary>
       <description>Number of days after which deleted bookmarks are permanently removed from the database.</description>
     </key>
+    <key name="color-scheme" type="s">
+      <default>"default"</default>
+      <summary>Color scheme</summary>
+      <description>The color scheme to use. Possible values: "default", "light", "dark".</description>
+    </key>
     <key name="show-welcome" type="b">
       <default>true</default>
       <summary>Show welcome dialog</summary>

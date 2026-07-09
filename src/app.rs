@@ -619,6 +619,15 @@ impl SimpleComponent for App {
                 sender.input(AppMsg::ShowWelcome);
                 let _ = settings.set_boolean("show-welcome", false);
             }
+
+            // Apply saved color scheme
+            let color_scheme = settings.string("color-scheme");
+            let style_manager = adw::StyleManager::default();
+            match color_scheme.as_str() {
+                "light" => style_manager.set_color_scheme(adw::ColorScheme::ForceLight),
+                "dark" => style_manager.set_color_scheme(adw::ColorScheme::ForceDark),
+                _ => style_manager.set_color_scheme(adw::ColorScheme::Default),
+            }
         }
 
         let bms = model.bookmarks.view.clone();

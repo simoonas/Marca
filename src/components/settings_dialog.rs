@@ -7,6 +7,7 @@ pub struct SettingsDialog {
     importing: bool,
     root: adw::PreferencesDialog,
     gc_days: u32,
+    color_scheme: String,
     settings: Option<gio::Settings>,
 }
 
@@ -35,6 +36,7 @@ pub enum SettingsMsg {
     ImportComplete(Result<crate::db::ImportResult, String>),
     ExportComplete(Result<usize, String>),
     SetGcDays(u32),
+    SetColorScheme(String),
     ShowAbout,
 }
 
@@ -90,6 +92,38 @@ impl SimpleComponent for SettingsDialog {
                                 set_active: model.gc_days == 30,
                                 connect_clicked => SettingsMsg::SetGcDays(30),
                             }
+                        }
+                    }
+                },
+
+                add = &adw::PreferencesGroup {
+                    set_title: "Appearance",
+
+                    adw::ActionRow {
+                        set_title: "Theme",
+
+                        add_suffix = &gtk::Box {
+                            set_spacing: 6,
+                            set_valign: gtk::Align::Center,
+
+                            append = &gtk::ToggleButton {
+                                set_label: "System",
+                                #[watch]
+                                set_active: model.color_scheme == "default",
+                                connect_clicked => SettingsMsg::SetColorScheme("default".to_string()),
+                            },
+                            append = &gtk::ToggleButton {
+                                set_label: "Light",
+                                #[watch]
+                                set_active: model.color_scheme == "light",
+                                connect_clicked => SettingsMsg::SetColorScheme("light".to_string()),
+                            },
+                            append = &gtk::ToggleButton {
+                                set_label: "Dark",
+                                #[watch]
+                                set_active: model.color_scheme == "dark",
+                                connect_clicked => SettingsMsg::SetColorScheme("dark".to_string()),
+                            },
                         }
                     }
                 },
@@ -187,11 +221,16 @@ impl SimpleComponent for SettingsDialog {
         };
 
         let gc_days = settings.as_ref().map(|s| s.int("gc-days")).unwrap_or(30);
+        let color_scheme = settings
+            .as_ref()
+            .map(|s| s.string("color-scheme").to_string())
+            .unwrap_or_else(|| "default".to_string());
 
         let model = SettingsDialog {
             importing: false,
             root: root.clone(),
             gc_days: gc_days as u32,
+            color_scheme,
             settings,
         };
 
@@ -470,6 +509,19 @@ impl SimpleComponent for SettingsDialog {
                 self.gc_days = days;
                 if let Some(settings) = &self.settings {
                     let _ = settings.set_int("gc-days", days as i32);
+                }
+            }
+
+            SettingsMsg::SetColorScheme(scheme) => {
+                self.color_scheme = scheme.clone();
+                if let Some(settings) = &self.settings {
+                    let _ = settings.set_string("color-scheme", &scheme);
+                }
+                let style_manager = adw::StyleManager::default();
+                match scheme.as_str() {
+                    "light" => style_manager.set_color_scheme(adw::ColorScheme::ForceLight),
+                    "dark" => style_manager.set_color_scheme(adw::ColorScheme::ForceDark),
+                    _ => style_manager.set_color_scheme(adw::ColorScheme::Default),
                 }
             }
 
