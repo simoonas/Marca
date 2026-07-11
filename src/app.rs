@@ -12,6 +12,47 @@ use relm4::prelude::*;
 use relm4::typed_view::list::TypedListView;
 use std::sync::OnceLock;
 
+const MAIN_CSS: &str = "\
+.favicon-icon { border-radius: 4px; max-width: 48px; max-height: 48px; min-width: 24px; min-height: 24px;}
+button.compact { padding: 0; margin: 0; min-height: 24px; font-size: 0.85em; }
+.untagged-tag:not(:hover) { background-color: var(--accent-teal); }
+.trashed-tag:not(:hover) { background-color: var(--accent-yellow); }
+.untagged-tag:not(:hover) .untagged-tag-label { color: white; }
+.tag { font-weight: 750; font-family: 'Adwaita Sans'; }
+.hotkey-shortcut { font-size: 0.8em; padding: 0; margin: 0; }
+.hotkey-label { font-size: 0.8em; padding: 0; margin: 0; }
+actionbar > revealer { min-height: 0; }
+.actionbar-btn { margin-end: 0; }
+listview > row { margin-top: 2px; margin-bottom: 1px; margin-left: 9px; margin-right: 9px; }
+listview > row:selected { border-radius: 14px; outline-offset: 2px;}
+// listview > row:selected { background-color: @accent_color; border-radius: 16px; outline-offset: -2px;}
+listview > row:focus { border-radius: 16px; outline: 2px solid @accent_color; outline-offset: -2px; }
+.suggestion-popover contents { padding: 0; background-color: @popover_bg_color; border-radius: 12px; min-width: 450px; }
+.suggestion-list { background-color: transparent; margin: 4px; }
+.suggestion-list row { padding: 4px 8px; border-radius: 8px; margin-bottom: 2px; }
+.suggestion-list row:last-child { margin-bottom: 0; }
+.suggestion-list row:selected { background-color: @accent_bg_color; color: @accent_fg_color; }
+";
+
+const SEPIA_CSS: &str = "\
+@define-color window_bg_color #ebd5b3;
+@define-color window_fg_color #4c3a2d;
+@define-color view_bg_color #f5e6c8;
+@define-color view_fg_color #4c3a2d;
+@define-color headerbar_bg_color #e0c9a5;
+@define-color headerbar_fg_color #4c3a2d;
+@define-color card_bg_color #f0ddc0;
+@define-color card_fg_color #4c3a2d;
+@define-color popover_bg_color #f0ddc0;
+@define-color popover_fg_color #4c3a2d;
+@define-color sidebar_bg_color #ebd5b3;
+@define-color sidebar_fg_color #4c3a2d;
+@define-color sidebar_border_color #d4b889;
+@define-color accent_bg_color #8b6914;
+@define-color accent_color #8b6914;
+@define-color accent_fg_color #ffffff;
+";
+
 #[derive(Clone, Copy, PartialEq)]
 enum TagSection {
     Pinned,
@@ -84,6 +125,33 @@ impl App {
         false
     }
 
+    fn apply_color_scheme(&mut self, scheme: &str) {
+        let style_manager = adw::StyleManager::default();
+        let display = adw::prelude::WidgetExt::display(&self.window);
+
+        // Remove existing sepia CSS provider if any
+        if let Some(provider) = self.sepia_provider.take() {
+            gtk::style_context_remove_provider_for_display(&display, &provider);
+        }
+
+        match scheme {
+            "light" => style_manager.set_color_scheme(adw::ColorScheme::ForceLight),
+            "dark" => style_manager.set_color_scheme(adw::ColorScheme::ForceDark),
+            "sepia" => {
+                style_manager.set_color_scheme(adw::ColorScheme::ForceLight);
+                let provider = gtk::CssProvider::new();
+                provider.load_from_string(SEPIA_CSS);
+                gtk::style_context_add_provider_for_display(
+                    &display,
+                    &provider,
+                    gtk::STYLE_PROVIDER_PRIORITY_APPLICATION,
+                );
+                self.sepia_provider = Some(provider);
+            }
+            _ => style_manager.set_color_scheme(adw::ColorScheme::Default),
+        }
+    }
+
     fn is_focus_in_sidebar(&self) -> bool {
         let Some(focused) = gtk::prelude::RootExt::focus(&self.window) else {
             return false;
@@ -146,6 +214,8 @@ pub struct App {
     // Tag filter mode (AND/OR)
     tag_filter_mode: TagFilterMode,
     tag_filter_button: gtk::Button,
+
+    sepia_provider: Option<gtk::CssProvider>,
 }
 
 #[derive(Debug)]
@@ -182,6 +252,7 @@ pub enum AppMsg {
     ClearTrash,
     AddBookmarkFromCli(String),
     ShowWelcome,
+    ColorSchemeChanged(String),
 
     // Hotkey system messages
     FocusChanged,
@@ -579,6 +650,8 @@ impl SimpleComponent for App {
 
             tag_filter_mode: TagFilterMode::All,
             tag_filter_button: gtk::Button::new(),
+
+            sepia_provider: None,
         };
 
         let bookmarks_list = &model.bookmarks.view;
@@ -622,12 +695,7 @@ impl SimpleComponent for App {
 
             // Apply saved color scheme
             let color_scheme = settings.string("color-scheme");
-            let style_manager = adw::StyleManager::default();
-            match color_scheme.as_str() {
-                "light" => style_manager.set_color_scheme(adw::ColorScheme::ForceLight),
-                "dark" => style_manager.set_color_scheme(adw::ColorScheme::ForceDark),
-                _ => style_manager.set_color_scheme(adw::ColorScheme::Default),
-            }
+            model.apply_color_scheme(color_scheme.as_str());
         }
 
         let bms = model.bookmarks.view.clone();
@@ -707,27 +775,7 @@ impl SimpleComponent for App {
 
         // Load custom CSS for favicon styling, compact buttons, and untagged tag styling
         let css_provider = gtk::CssProvider::new();
-        css_provider.load_from_string(
-            ".favicon-icon { border-radius: 4px; max-width: 48px; max-height: 48px; min-width: 24px; min-height: 24px;}
-             button.compact { padding: 0; margin: 0; min-height: 24px; font-size: 0.85em; }
-            .untagged-tag:not(:hover) { background-color: var(--accent-teal); }
-            .trashed-tag:not(:hover) { background-color: var(--accent-yellow); }
-            .untagged-tag:not(:hover) .untagged-tag-label { color: white; }
-            .tag { font-weight: 750; font-family: 'Adwaita Sans'; }
-             .hotkey-shortcut { font-size: 0.8em; padding: 0; margin: 0; }
-             .hotkey-label { font-size: 0.8em; padding: 0; margin: 0; }
-             actionbar > revealer { min-height: 0; }
-            .actionbar-btn { margin-end: 0; }
-            listview > row { margin-top: 2px; margin-bottom: 1px; margin-left: 9px; margin-right: 9px; }
-             listview > row:selected { border-radius: 14px; outline-offset: 2px;}
-             // listview > row:selected { background-color: @accent_color; border-radius: 16px; outline-offset: -2px;}
-             listview > row:focus { border-radius: 16px; outline: 2px solid @accent_color; outline-offset: -2px; }
-             .suggestion-popover contents { padding: 0; background-color: @popover_bg_color; border-radius: 12px; min-width: 450px; }
-             .suggestion-list { background-color: transparent; margin: 4px; }
-             .suggestion-list row { padding: 4px 8px; border-radius: 8px; margin-bottom: 2px; }
-             .suggestion-list row:last-child { margin-bottom: 0; }
-             .suggestion-list row:selected { background-color: @accent_bg_color; color: @accent_fg_color; }",
-        );
+        css_provider.load_from_string(MAIN_CSS);
         gtk::style_context_add_provider_for_display(
             &adw::prelude::WidgetExt::display(&root),
             &css_provider,
@@ -1623,6 +1671,10 @@ impl SimpleComponent for App {
                 self.welcome_dialog = Some(dialog);
             }
 
+            AppMsg::ColorSchemeChanged(scheme) => {
+                self.apply_color_scheme(&scheme);
+            }
+
             AppMsg::OpenSettings => {
                 // Create settings dialog if not exists
                 if self.settings_dialog.is_none() {
@@ -1632,6 +1684,9 @@ impl SimpleComponent for App {
                             SettingsOutput::RefreshBookmarks => AppMsg::RefreshBookmarks,
                             SettingsOutput::RefreshTags => AppMsg::RefreshTags,
                             SettingsOutput::ShowToast(msg) => AppMsg::ShowToast(msg),
+                            SettingsOutput::ColorSchemeChanged(scheme) => {
+                                AppMsg::ColorSchemeChanged(scheme)
+                            }
                         },
                     );
                     self.settings_dialog = Some(dialog);

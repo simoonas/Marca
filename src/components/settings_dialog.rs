@@ -45,6 +45,7 @@ pub enum SettingsOutput {
     RefreshBookmarks,
     RefreshTags,
     ShowToast(String),
+    ColorSchemeChanged(String),
 }
 
 #[relm4::component(pub)]
@@ -123,6 +124,12 @@ impl SimpleComponent for SettingsDialog {
                                 #[watch]
                                 set_active: model.color_scheme == "dark",
                                 connect_clicked => SettingsMsg::SetColorScheme("dark".to_string()),
+                            },
+                            append = &gtk::ToggleButton {
+                                set_label: "Sepia",
+                                #[watch]
+                                set_active: model.color_scheme == "sepia",
+                                connect_clicked => SettingsMsg::SetColorScheme("sepia".to_string()),
                             },
                         }
                     }
@@ -517,12 +524,7 @@ impl SimpleComponent for SettingsDialog {
                 if let Some(settings) = &self.settings {
                     let _ = settings.set_string("color-scheme", &scheme);
                 }
-                let style_manager = adw::StyleManager::default();
-                match scheme.as_str() {
-                    "light" => style_manager.set_color_scheme(adw::ColorScheme::ForceLight),
-                    "dark" => style_manager.set_color_scheme(adw::ColorScheme::ForceDark),
-                    _ => style_manager.set_color_scheme(adw::ColorScheme::Default),
-                }
+                let _ = sender.output(SettingsOutput::ColorSchemeChanged(scheme));
             }
 
             SettingsMsg::ShowAbout => {
