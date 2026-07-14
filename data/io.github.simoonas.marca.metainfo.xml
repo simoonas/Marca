@@ -42,24 +42,41 @@
 
   <screenshots>
     <screenshot type="default">
-      <image>https://raw.githubusercontent.com/simoonas/Marca/v0.1.0/assets/default.png</image>
+      <image>https://raw.githubusercontent.com/simoonas/Marca/v0.2.0/assets/default.png</image>
       <caption>Main view (dark mode)</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/simoonas/Marca/v0.1.0/assets/any-tags.png</image>
+      <image>https://raw.githubusercontent.com/simoonas/Marca/v0.2.0/assets/any-tags.png</image>
       <caption>Bookmarks containing any pinned tags </caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/simoonas/Marca/v0.1.0/assets/all-tags.png</image>
+      <image>https://raw.githubusercontent.com/simoonas/Marca/v0.2.0/assets/all-tags.png</image>
       <caption>Bookmarks tagged `Eco` and `map` sorted by modified time</caption>
     </screenshot>
     <screenshot>
-      <image>https://raw.githubusercontent.com/simoonas/Marca/v0.1.0/assets/edit-create.png</image>
+      <image>https://raw.githubusercontent.com/simoonas/Marca/v0.2.0/assets/edit-create.png</image>
       <caption>Edit/create bookmark</caption>
     </screenshot>
   </screenshots>
 
   <releases>
+    <release version="0.2.0" date="2026-07-14">
+      <url type="details">https://github.com/simoonas/Marca/releases/tag/v0.2.0</url>
+      <description>
+        <p>New:</p>
+          <ul>
+            <li>Sidebar redesigned: hotkey hint for tag search, special tags are now always visible</li>
+            <li>Orphan tags get deleted on hard delete</li>
+            <li>New Sepia theme for easy readability in upcoming reader mode</li>
+            <li>Add bookmark from highlighted text with --add-selection - pair it with a keyboard shortcut!</li>
+          </ul>
+        <p>Bug fixes:</p>
+          <ul>
+            <li>Deleted bookmarks get restored and updated when their url is added</li>
+            <li>Orphan tags get deleted on hard delete</li>
+          </ul>
+      </description>
+    </release>
     <release version="0.1.1" date="2026-06-30">
       <url type="details">https://github.com/simoonas/Marca/releases/tag/v0.1.1</url>
       <description>

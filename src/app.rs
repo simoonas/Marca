@@ -23,15 +23,16 @@ button.compact { padding: 0; margin: 0; min-height: 24px; font-size: 0.85em; }
 .hotkey-label { font-size: 0.8em; padding: 0; margin: 0; }
 actionbar > revealer { min-height: 0; }
 .actionbar-btn { margin-end: 0; }
-listview > row { margin-top: 2px; margin-bottom: 1px; margin-left: 9px; margin-right: 9px; }
-listview > row:selected { border-radius: 14px; outline-offset: 2px;}
-// listview > row:selected { background-color: @accent_color; border-radius: 16px; outline-offset: -2px;}
-listview > row:focus { border-radius: 16px; outline: 2px solid @accent_color; outline-offset: -2px; }
+listview > row { margin-top: 2px; margin-bottom: 1px; margin-left: 9px; margin-right: 9px; border-radius: 18px; background: none; }
+listview > row:focus { outline: 2px solid @accent_color; outline-offset: -2px; }
+listview > row:hover { background-color: alpha(@accent_bg_color, 0.15); }
+//listview > row:selected .card { background: none; }
 .suggestion-popover contents { padding: 0; background-color: @popover_bg_color; border-radius: 12px; min-width: 450px; }
 .suggestion-list { background-color: transparent; margin: 4px; }
 .suggestion-list row { padding: 4px 8px; border-radius: 8px; margin-bottom: 2px; }
 .suggestion-list row:last-child { margin-bottom: 0; }
 .suggestion-list row:selected { background-color: @accent_bg_color; color: @accent_fg_color; }
+.keycap { font-weight: 700; font-size: 0.90em; padding: 2px 6px; border-radius: 8px; background-color: alpha(@borders, 0.5); }
 ";
 
 const SEPIA_CSS: &str = "\
@@ -48,9 +49,14 @@ const SEPIA_CSS: &str = "\
 @define-color sidebar_bg_color #ebd5b3;
 @define-color sidebar_fg_color #4c3a2d;
 @define-color sidebar_border_color #d4b889;
+@define-color sidebar_backdrop_color #dcc3a0;
 @define-color accent_bg_color #8b6914;
 @define-color accent_color #8b6914;
 @define-color accent_fg_color #ffffff;
+@define-color dialog_bg_color #f0ddc0;
+@define-color dialog_fg_color #4c3a2d;
+toast { background-color: #6a5a3e; color: #f5e6c8; }
+.untagged-tag:not(:hover) .untagged-tag-label { color: @window_bg_color; }
 ";
 
 #[derive(Clone, Copy, PartialEq)]
@@ -193,6 +199,7 @@ pub struct App {
     settings_dialog: Option<Controller<SettingsDialog>>,
     welcome_dialog: Option<Controller<WelcomeDialog>>,
     is_bookmarks_empty: bool,
+    bookmarks_scrolled_window: gtk::ScrolledWindow,
 
     // Hotkey display component
     hotkey_display: Controller<HotkeyDisplay>,
@@ -251,6 +258,7 @@ pub enum AppMsg {
     ConfirmClearTrash,
     ClearTrash,
     AddBookmarkFromCli(String),
+    AddBookmarkFromSelection,
     ShowWelcome,
     ColorSchemeChanged(String),
 
@@ -514,7 +522,8 @@ impl SimpleComponent for App {
                                     connect_clicked => AppMsg::ConfirmClearTrash,
                                 },
 
-                                gtk::ScrolledWindow {
+                                #[local_ref]
+                                bookmarks_scrolled_window -> gtk::ScrolledWindow {
                                     set_hscrollbar_policy: gtk::PolicyType::Never,
                                     set_vscrollbar_policy: gtk::PolicyType::Automatic,
                                     set_vexpand: true,
@@ -634,6 +643,7 @@ impl SimpleComponent for App {
             settings_dialog: None,
             welcome_dialog: None,
             is_bookmarks_empty: false,
+            bookmarks_scrolled_window: gtk::ScrolledWindow::new(),
 
             hotkey_display,
 
@@ -655,6 +665,7 @@ impl SimpleComponent for App {
         };
 
         let bookmarks_list = &model.bookmarks.view;
+        let bookmarks_scrolled_window = &model.bookmarks_scrolled_window;
         let pinned_tags_list = model.pinned_tags.widget();
         let unpinned_tags_list = model.unpinned_tags.widget();
         let special_tags_list = model.special_tags.widget();
@@ -730,11 +741,11 @@ impl SimpleComponent for App {
                     sender_clone.input(AppMsg::NavigatePrev);
                     gtk::glib::Propagation::Stop
                 }
-                (Key::Down, false) => {
+                (Key::Down, false) if !focused_is_bookmark_row() => {
                     sender_clone.input(AppMsg::NavigateNext);
                     gtk::glib::Propagation::Stop
                 }
-                (Key::Up, false) => {
+                (Key::Up, false) if !focused_is_bookmark_row() => {
                     sender_clone.input(AppMsg::NavigatePrev);
                     gtk::glib::Propagation::Stop
                 }
@@ -976,10 +987,9 @@ impl SimpleComponent for App {
                     Ok(bookmarks) => {
                         self.is_bookmarks_empty = bookmarks.is_empty();
 
-                        // Hide the ListView to batch layout updates
+                        // Batch layout: hide before modifying, show after
                         self.bookmarks.view.set_visible(false);
 
-                        // Convert to BookmarkListItem and bulk load
                         self.bookmarks.clear();
                         self.bookmarks.extend_from_iter(
                             bookmarks
@@ -987,7 +997,6 @@ impl SimpleComponent for App {
                                 .map(BookmarkListItem::from_bookmark_with_tags),
                         );
 
-                        // Show the ListView again, forcing a single layout pass
                         self.bookmarks.view.set_visible(true);
                     }
                     Err(e) => {
@@ -1652,13 +1661,49 @@ impl SimpleComponent for App {
             AppMsg::AddBookmarkFromCli(text) => {
                 let sender = _sender.clone();
                 adw::glib::MainContext::default().spawn_local(async move {
-                    if let Err(e) =
-                        process_background_bookmark(&text, Some(sender.input_sender().clone()))
-                            .await
+                    if let Err(e) = process_background_bookmark(
+                        &text,
+                        Some(sender.input_sender().clone()),
+                        "CLI",
+                    )
+                    .await
                     {
                         eprintln!("Error adding bookmark from CLI: {}", e);
                         sender.input(AppMsg::ShowToast(
-                            "Failed to add bookmark from clipboard".to_string(),
+                            "Failed to add bookmark from CLI".to_string(),
+                        ));
+                    }
+                });
+            }
+
+            AppMsg::AddBookmarkFromSelection => {
+                let sender = _sender.clone();
+                adw::glib::MainContext::default().spawn_local(async move {
+                    let result = tokio::task::spawn_blocking(read_primary_selection).await;
+                    let text = match result {
+                        Ok(Ok(t)) => t,
+                        Ok(Err(msg)) => {
+                            sender.input(AppMsg::ShowToast(msg));
+                            return;
+                        }
+                        Err(e) => {
+                            eprintln!("Task join error: {}", e);
+                            sender.input(AppMsg::ShowToast(
+                                "Failed to read primary selection".to_string(),
+                            ));
+                            return;
+                        }
+                    };
+                    if let Err(e) = process_background_bookmark(
+                        &text,
+                        Some(sender.input_sender().clone()),
+                        "selection",
+                    )
+                    .await
+                    {
+                        eprintln!("Error adding bookmark from selection: {}", e);
+                        sender.input(AppMsg::ShowToast(
+                            "Failed to add bookmark from selection".to_string(),
                         ));
                     }
                 });
@@ -1902,9 +1947,52 @@ impl SimpleComponent for App {
     }
 }
 
+pub fn read_primary_selection() -> Result<String, String> {
+    // Try wl-paste (Wayland) first
+    if let Ok(output) = std::process::Command::new("wl-paste").args(["-p"]).output()
+        && output.status.success()
+    {
+        let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !text.is_empty() {
+            return Ok(text);
+        }
+    }
+
+    // Try xsel (X11) as fallback
+    if let Ok(output) = std::process::Command::new("xsel")
+        .args(["-p", "-o"])
+        .output()
+    {
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !text.is_empty() {
+                return Ok(text);
+            }
+        }
+        return Err("Nothing selected".to_string());
+    }
+
+    // Final fallback: try xclip (alternative X11 tool)
+    if let Ok(output) = std::process::Command::new("xclip")
+        .args(["-o", "-selection", "primary"])
+        .output()
+    {
+        if output.status.success() {
+            let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !text.is_empty() {
+                return Ok(text);
+            }
+        }
+        return Err("Nothing selected".to_string());
+    }
+
+    Err("No primary selection tool found (install wl-clipboard or xsel)".to_string())
+}
+
 pub async fn process_background_bookmark(
     text: &str,
     sender: Option<relm4::Sender<AppMsg>>,
+    source: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     // 1. Extract URL
     let re = regex::Regex::new(r"https?://[^\s]+")?;
@@ -1941,8 +2029,8 @@ pub async fn process_background_bookmark(
     if let Some(sender) = &sender {
         let _ = sender.send(AppMsg::RefreshBookmarks);
         let _ = sender.send(AppMsg::ShowToast(format!(
-            "Bookmark {} from clipboard",
-            action_str
+            "Bookmark {} from {}",
+            action_str, source
         )));
     }
 

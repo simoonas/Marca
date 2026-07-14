@@ -15,6 +15,8 @@ use relm4::{RelmApp, main_application};
 struct Cli {
     #[arg(long)]
     add: Option<String>,
+    #[arg(long)]
+    add_selection: bool,
 }
 
 fn main() {
@@ -31,20 +33,47 @@ fn main() {
 
         let is_ui_visible = app.windows().iter().any(|w| w.is_visible());
 
-        if let Some(Cli { add: Some(ref url) }) = cli {
-            if is_ui_visible {
-                if let Some(sender) = app::APP_SENDER.get() {
-                    let _ = sender.send(app::AppMsg::AddBookmarkFromCli(url.clone()));
+        if let Some(ref cli) = cli {
+            if let Some(ref url) = cli.add {
+                if is_ui_visible {
+                    if let Some(sender) = app::APP_SENDER.get() {
+                        let _ = sender.send(app::AppMsg::AddBookmarkFromCli(url.clone()));
+                    }
+                } else {
+                    let app_clone = app.clone();
+                    let url = url.clone();
+                    adw::glib::MainContext::default().spawn_local(async move {
+                        if let Err(e) = app::process_background_bookmark(&url, None, "CLI").await {
+                            eprintln!("Background bookmark error: {}", e);
+                        }
+                        app_clone.quit();
+                    });
+                }
+            } else if cli.add_selection {
+                if is_ui_visible {
+                    if let Some(sender) = app::APP_SENDER.get() {
+                        let _ = sender.send(app::AppMsg::AddBookmarkFromSelection);
+                    }
+                } else {
+                    let app_clone = app.clone();
+                    adw::glib::MainContext::default().spawn_local(async move {
+                        let result = tokio::task::spawn_blocking(app::read_primary_selection).await;
+                        match result {
+                            Ok(Ok(text)) => {
+                                if let Err(e) =
+                                    app::process_background_bookmark(&text, None, "selection").await
+                                {
+                                    eprintln!("Background bookmark error: {}", e);
+                                }
+                            }
+                            Ok(Err(msg)) => eprintln!("{}", msg),
+                            Err(e) => eprintln!("Task join error: {}", e),
+                        }
+                        app_clone.quit();
+                    });
                 }
             } else {
-                let app_clone = app.clone();
-                let url = url.clone();
-                adw::glib::MainContext::default().spawn_local(async move {
-                    if let Err(e) = app::process_background_bookmark(&url, None).await {
-                        eprintln!("Background bookmark error: {}", e);
-                    }
-                    app_clone.quit();
-                });
+                app.activate();
             }
         } else {
             app.activate();

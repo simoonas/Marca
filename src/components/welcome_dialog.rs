@@ -35,37 +35,76 @@ impl SimpleComponent for WelcomeDialog {
                     adw::PreferencesGroup {
                         set_title: "Keyboard Shortcuts",
 
-                        adw::ActionRow {
-                            set_title: "Navigate Bookmarks",
-                            set_subtitle: "Use Ctrl+J/N / ↓ or Ctrl+K/P / ↑",
-                        },
+                        gtk::Box {
+                            add_css_class: "card",
 
-                        adw::ActionRow {
-                            set_title: "Switch Sections",
-                            set_subtitle: "Use Tab/S-Tab to switch between search and lists",
+                            gtk::Box {
+                                set_orientation: gtk::Orientation::Vertical,
+                                set_spacing: 8,
+                                set_margin_all: 16,
+
+                                gtk::Box {
+                                    set_orientation: gtk::Orientation::Horizontal,
+                                    set_spacing: 0,
+
+                                    gtk::Label {
+                                        set_label: "Navigate Bookmarks",
+                                        set_halign: gtk::Align::Start,
+                                        set_valign: gtk::Align::Center,
+                                        set_hexpand: true,
+                                        add_css_class: "dim-label",
+                                    },
+                                    gtk::Label {
+                                        set_label: "Ctrl+J/K  or  ↑/↓",
+                                        set_halign: gtk::Align::End,
+                                        set_valign: gtk::Align::Center,
+                                        add_css_class: "keycap",
+                                    },
+                                },
+
+                                gtk::Separator {},
+
+                                gtk::Box {
+                                    set_orientation: gtk::Orientation::Horizontal,
+                                    set_spacing: 0,
+
+                                    gtk::Label {
+                                        set_label: "Switch Sections",
+                                        set_halign: gtk::Align::Start,
+                                        set_valign: gtk::Align::Center,
+                                        set_hexpand: true,
+                                        add_css_class: "dim-label",
+                                    },
+                                    gtk::Label {
+                                        set_label: "Tab / S-Tab",
+                                        set_halign: gtk::Align::End,
+                                        set_valign: gtk::Align::Center,
+                                        add_css_class: "keycap",
+                                    },
+                                },
+                            },
                         },
                     },
 
                     adw::PreferencesGroup {
-                        set_title: "Add from highlighted text via CLI",
+                        set_title: "Add from highlighted text",
+                        set_description: Some("(requires wl-clipboard for Wayland, xsel/xclip for X11)"),
 
                         adw::ActionRow {
-                            set_title: "Quickly Add from highlighted text",
-                            set_subtitle: "Set a keyboard shortcut to:",
-                            set_activatable: false,
+                            set_title: "Set a keybind to:",
+                            set_subtitle: "flatpak run io.github.simoonas.marca --add-selection",
 
-                            #[wrap(Some)]
-                            set_child = &gtk::Box {
-                                set_orientation: gtk::Orientation::Vertical,
-                                set_spacing: 6,
+                            add_suffix = &gtk::Button {
+                                set_icon_name: "edit-copy-symbolic",
+                                add_css_class: "flat",
                                 set_valign: gtk::Align::Center,
+                                set_tooltip_text: Some("Copy to clipboard"),
 
-                                gtk::Label {
-                                    set_label: "io.github.simoonas.marca --add \"$(wl-paste -p)\"",
-                                    set_selectable: true,
-                                    add_css_class: "code-label",
-                                    set_xalign: 0.0,
-                                },
+                                connect_clicked[text = "flatpak run io.github.simoonas.marca --add-selection"] => move |_| {
+                                    if let Some(display) = gtk::gdk::Display::default() {
+                                        display.clipboard().set_text(text);
+                                    }
+                                }
                             }
                         },
                     },
